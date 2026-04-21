@@ -408,6 +408,9 @@ body::after{
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><path d="M2 5h12M2 8h9M2 11h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       <span>Transactions</span>
     </div>
+    <div class="nav-item" data-panel="subscriptions" onclick="nav(this)">
+      <svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 8a6 6 0 1 1-1.76-4.24M14 2v4h-4"/></svg><span>Subscriptions</span>
+    </div>
     <div class="nav-item" data-panel="loans" onclick="nav(this)">
       <svg class="nav-icon" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v3.5l2 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
       <span>Loans</span>
@@ -516,12 +519,29 @@ body::after{
       <div class="card"><div class="card-header"><div class="card-title">Loan balances</div></div><div class="chart-wrap" style="height:260px"><canvas id="ch-loans" role="img" aria-label="Loan balances">Loan balances</canvas></div></div>
       <div class="card" style="padding:1rem 1.25rem;">
         <div class="card-header"><div class="card-title">All loans</div><div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace">+ icon = log payment</div></div>
-        <div class="tbl-head" style="grid-template-columns:1fr 90px 90px 90px 80px 72px;"><div>Name</div><div style="text-align:right">Total</div><div style="text-align:right">Balance</div><div style="text-align:right">Monthly</div><div>Status</div><div></div></div>
+        <div class="tbl-head" style="grid-template-columns:1fr 80px 80px 80px 110px 80px 72px;"><div>Name</div><div style="text-align:right">Total</div><div style="text-align:right">Balance</div><div style="text-align:right">Monthly</div><div>Next due</div><div>Status</div><div></div></div>
         <div id="ln-body"></div>
       </div>
       <div class="card" style="padding:1rem 1.25rem;">
         <div class="card-header"><div class="card-title">Mandatory monthly expenses</div><button class="btn" onclick="openMandModal()">+ Add</button></div>
         <div id="mand-body"></div>
+      </div>
+    </div>
+
+    <!-- SUBSCRIPTIONS -->
+    <div id="panel-subscriptions" class="panel">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:1.25rem;">
+        <button class="btn btn-g" onclick="openSubModal()">+ Add Subscription</button>
+      </div>
+      <div class="metric-grid" id="sub-metrics"></div>
+      <div class="card" style="padding:1rem 1.25rem;">
+        <div class="card-header"><div class="card-title">Upcoming bills (next 30 days)</div></div>
+        <div id="sub-upcoming" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+      <div class="card" style="padding:1rem 1.25rem;">
+        <div class="card-header"><div class="card-title">All subscriptions</div></div>
+        <div class="tbl-head" style="grid-template-columns:1fr 90px 90px 110px 80px 72px;"><div>Name</div><div style="text-align:right">Amount</div><div>Cycle</div><div>Next due</div><div>Status</div><div></div></div>
+        <div id="sub-body"></div>
       </div>
     </div>
 
@@ -643,6 +663,54 @@ body::after{
   </div>
 </div>
 
+<!-- MODAL: Subscription -->
+<div class="overlay" id="m-sub">
+  <div class="modal">
+    <div class="modal-title" id="m-sub-title">Add Subscription</div>
+    <input type="hidden" id="sb-id">
+    <div class="form-group"><label class="form-label">Name</label><input class="form-input" id="sb-name" placeholder="e.g. Netflix, Spotify, iCloud"></div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Amount (₱)</label><input class="form-input" id="sb-amt" type="number" step="0.01"></div>
+      <div class="form-group"><label class="form-label">Cycle</label>
+        <select class="form-select" id="sb-cycle"><option value="monthly">Monthly</option><option value="yearly">Yearly</option><option value="weekly">Weekly</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Billing Day (1-31)</label><input class="form-input" id="sb-due" type="number" min="1" max="31" placeholder="15"></div>
+      <div class="form-group"><label class="form-label">Status</label>
+        <select class="form-select" id="sb-status"><option value="active">Active</option><option value="paused">Paused</option><option value="canceled">Canceled</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Category</label><input class="form-input" id="sb-cat" placeholder="e.g. Entertainment"></div>
+      <div class="form-group"><label class="form-label">Source / Bank</label><input class="form-input" id="sb-source" placeholder="e.g. BPI Visa"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Logo (optional)</label>
+      <div class="img-upload">
+        <input type="file" id="sb-img-file" accept="image/*" style="display:none" onchange="handleSubImg(event)">
+        <div id="sb-img-empty" class="img-empty" onclick="document.getElementById('sb-img-file').click()">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          <span>Click to upload service logo</span>
+        </div>
+        <div id="sb-img-preview" class="img-preview" style="display:none">
+          <img id="sb-img-thumb" alt="">
+          <div class="img-actions">
+            <button type="button" class="btn" onclick="document.getElementById('sb-img-file').click()" style="padding:6px 10px;font-size:11px">Replace</button>
+            <button type="button" class="btn btn-r" onclick="clearSubImg()" style="padding:6px 10px;font-size:11px">Remove</button>
+          </div>
+        </div>
+        <input type="hidden" id="sb-img-data">
+      </div>
+    </div>
+    <div class="form-group"><label class="form-label">Notes (optional)</label><textarea class="form-textarea" id="sb-notes" placeholder="Plan details, account holder..."></textarea></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeM('m-sub')">Cancel</button>
+      <button class="btn btn-g" onclick="saveSub()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: Loan -->
 <div class="overlay" id="m-loan">
   <div class="modal">
@@ -657,10 +725,18 @@ body::after{
       <div class="form-group"><label class="form-label">Monthly Payment (₱)</label><input class="form-input" id="ln-mo" type="number" step="0.01"></div>
       <div class="form-group"><label class="form-label">Due Day (1-31)</label><input class="form-input" id="ln-due" type="number" min="1" max="31" placeholder="10"></div>
     </div>
-    <div class="form-group"><label class="form-label">Notes / Lender</label><input class="form-input" id="ln-notes" placeholder="e.g. via Maya app"></div>
-    <div class="form-group"><label class="form-label">Status</label>
-      <select class="form-select" id="ln-status"><option value="active">Active</option><option value="minimal">Almost done</option><option value="paid">Paid</option></select>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Type</label>
+        <select class="form-select" id="ln-recurring">
+          <option value="installment">Installment (fixed term)</option>
+          <option value="revolving">Revolving (open-ended)</option>
+        </select>
+      </div>
+      <div class="form-group"><label class="form-label">Status</label>
+        <select class="form-select" id="ln-status"><option value="active">Active</option><option value="minimal">Almost done</option><option value="paid">Paid</option></select>
+      </div>
     </div>
+    <div class="form-group"><label class="form-label">Notes / Lender</label><input class="form-input" id="ln-notes" placeholder="e.g. via Maya app"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeM('m-loan')">Cancel</button>
       <button class="btn btn-g" onclick="saveLoan()">Save Loan</button>
@@ -769,11 +845,15 @@ function seed() {
     },
     transactions: [],
     loans: [],
+    subscriptions: [],
     mandatoryExpenses: [],
     budgetLines: [],
     upworkLogs: []
   };
 }
+
+function nextDueDate(day){if(!day)return null;const t=new Date();t.setHours(0,0,0,0);let y=t.getFullYear(),m=t.getMonth();let last=new Date(y,m+1,0).getDate();let d=Math.min(+day,last);let nd=new Date(y,m,d);if(nd<t){m++;if(m>11){m=0;y++;}last=new Date(y,m+1,0).getDate();d=Math.min(+day,last);nd=new Date(y,m,d);}return nd;}
+function dueBadge(day){const d=nextDueDate(day);if(!d)return '<span style="color:var(--muted);font-family:\'DM Mono\',monospace;font-size:11px">—</span>';const t=new Date();t.setHours(0,0,0,0);const diff=Math.round((d-t)/86400000);const ds=d.toLocaleDateString('en-PH',{month:'short',day:'numeric'});let cls='chip-m',txt='Due '+ds;if(diff===0){cls='chip-r';txt='Due today';}else if(diff<0){cls='chip-r';txt='Overdue '+(-diff)+'d';}else if(diff<=3){cls='chip-a';txt='In '+diff+'d · '+ds;}else if(diff<=7){cls='chip-b';txt='In '+diff+'d · '+ds;}return `<span class="chip ${cls}" style="font-size:10px;padding:2px 6px;white-space:nowrap">${txt}</span>`;}
 
 // ─── FORMAT ─────────────────────────────────────────
 const P = v => '₱' + Math.abs(+v||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -812,6 +892,7 @@ const META = {
   overview:['Overview','Budget at a glance'],
   transactions:['Transactions','Log & manage all entries'],
   loans:['Loans','Track liabilities & payments'],
+  subscriptions:['Subscriptions','Recurring monthly & yearly bills'],
   income:['Income','All salary & earnings'],
   budget:['Budget Lines','Plan vs actual spending'],
   upwork:['Upwork Log','Freelance hours & earnings'],
@@ -829,7 +910,7 @@ function nav(el) {
 }
 function curPanel() { return (document.querySelector('.nav-item.active')||{}).dataset?.panel||'overview'; }
 function renderP(p) {
-  ({overview:renderOverview,transactions:renderTx,loans:renderLoans,income:renderIncome,budget:renderBudget,upwork:renderUpwork,settings:renderSettings})[p]?.();
+  ({overview:renderOverview,transactions:renderTx,loans:renderLoans,subscriptions:renderSubs,income:renderIncome,budget:renderBudget,upwork:renderUpwork,settings:renderSettings})[p]?.();
 }
 
 // ─── TRANSACTIONS ─────────────────────────────────────
@@ -967,13 +1048,13 @@ function renderTx() {
 function openLoanModal(id) {
   document.getElementById('m-loan-title').textContent = id?'Edit Loan':'Add Loan';
   document.getElementById('ln-id').value = id||'';
-  if(id){ const l=gs().loans.find(x=>x.id===id); if(l){ document.getElementById('ln-name').value=l.name;document.getElementById('ln-total').value=l.total;document.getElementById('ln-bal').value=l.balance;document.getElementById('ln-mo').value=l.monthly;document.getElementById('ln-due').value=l.due;document.getElementById('ln-notes').value=l.notes||'';document.getElementById('ln-status').value=l.status; } }
-  else { ['ln-name','ln-total','ln-bal','ln-mo','ln-due','ln-notes'].forEach(x=>document.getElementById(x).value=''); document.getElementById('ln-status').value='active'; }
+  if(id){ const l=gs().loans.find(x=>x.id===id); if(l){ document.getElementById('ln-name').value=l.name;document.getElementById('ln-total').value=l.total;document.getElementById('ln-bal').value=l.balance;document.getElementById('ln-mo').value=l.monthly;document.getElementById('ln-due').value=l.due;document.getElementById('ln-notes').value=l.notes||'';document.getElementById('ln-status').value=l.status;document.getElementById('ln-recurring').value=l.recurring||'installment'; } }
+  else { ['ln-name','ln-total','ln-bal','ln-mo','ln-due','ln-notes'].forEach(x=>document.getElementById(x).value=''); document.getElementById('ln-status').value='active'; document.getElementById('ln-recurring').value='installment'; }
   document.getElementById('m-loan').classList.add('open');
 }
 function saveLoan() {
   const id=document.getElementById('ln-id').value;
-  const l={id:id||uid(),name:document.getElementById('ln-name').value,total:+document.getElementById('ln-total').value,balance:+document.getElementById('ln-bal').value,monthly:+document.getElementById('ln-mo').value,due:+document.getElementById('ln-due').value,notes:document.getElementById('ln-notes').value,status:document.getElementById('ln-status').value};
+  const l={id:id||uid(),name:document.getElementById('ln-name').value,total:+document.getElementById('ln-total').value,balance:+document.getElementById('ln-bal').value,monthly:+document.getElementById('ln-mo').value,due:+document.getElementById('ln-due').value,notes:document.getElementById('ln-notes').value,status:document.getElementById('ln-status').value,recurring:document.getElementById('ln-recurring').value};
   if(!l.name||!l.total){toast('Fill required fields','var(--red)');return;}
   const s=gs(); if(id){const i=s.loans.findIndex(x=>x.id===id);if(i>-1)s.loans[i]=l;}else s.loans.push(l);
   ss(s); closeM('m-loan'); toast(id?'Loan updated':'Loan added'); renderLoans();
@@ -1042,11 +1123,13 @@ function renderLoans(){
   document.getElementById('ln-body').innerHTML=loans.map(l=>{
     const pct=l.total>0?Math.min(100,Math.round((1-(l.balance/l.total))*100)):100;
     const pc=l.status==='paid'?'var(--green)':l.status==='minimal'?'var(--amber)':'var(--red)';
-    return `<div class="tbl-row" style="grid-template-columns:1fr 90px 90px 90px 80px 72px;">
-      <div><div style="font-weight:500">${l.name}</div><div style="font-size:11px;color:var(--muted)">${l.notes||''}</div><div style="margin-top:5px"><div class="prog-bg" style="width:100px"><div class="prog-fill" style="width:${pct}%;background:${pc}"></div></div></div></div>
+    const recChip = l.recurring==='revolving' ? '<span class="chip chip-b" style="font-size:9px;padding:1px 5px;margin-left:6px">REVOLVING</span>' : '<span class="chip chip-m" style="font-size:9px;padding:1px 5px;margin-left:6px">INSTALLMENT</span>';
+    return `<div class="tbl-row" style="grid-template-columns:1fr 80px 80px 80px 110px 80px 72px;">
+      <div><div style="font-weight:500">${l.name}${recChip}</div><div style="font-size:11px;color:var(--muted)">${l.notes||''}</div><div style="margin-top:5px"><div class="prog-bg" style="width:100px"><div class="prog-fill" style="width:${pct}%;background:${pc}"></div></div></div></div>
       <div style="text-align:right;font-family:'DM Mono',monospace;font-size:13px">${P(l.total)}</div>
       <div style="text-align:right;font-family:'DM Mono',monospace;font-size:13px;color:${l.balance>0?'var(--red)':'var(--green)'}">${P(l.balance)}</div>
       <div style="text-align:right;font-family:'DM Mono',monospace;font-size:13px;color:var(--amber)">${l.monthly?P(l.monthly):'-'}</div>
+      <div>${dueBadge(l.due)}</div>
       <div>${sc[l.status]||''}</div>
       <div style="display:flex;gap:3px;justify-content:flex-end">
         <button class="icon-btn" onclick="openLoanPay('${l.id}')" title="Log payment" style="color:var(--green)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
@@ -1060,6 +1143,85 @@ function renderLoans(){
     <button class="icon-btn" onclick="openMandModal('${m.id}')" style="opacity:.5"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M11 2l3 3-9 9H2v-3L11 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
     <button class="icon-btn dng" onclick="delMand('${m.id}')" style="opacity:.5"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5 4V2h6v2M3 4l1 10h8l1-10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div></div>`).join('')+`<div class="sum-row" style="font-weight:600;border-top:1px solid var(--border2);padding-top:10px;margin-top:4px"><span>Total</span><span style="font-family:'DM Mono',monospace;color:var(--amber)">${P(totMand)}</span></div>`;
+}
+
+// ─── SUBSCRIPTIONS ────────────────────────────────────
+function clearSubImg(){document.getElementById('sb-img-data').value='';document.getElementById('sb-img-thumb').src='';document.getElementById('sb-img-preview').style.display='none';document.getElementById('sb-img-empty').style.display='flex';document.getElementById('sb-img-file').value='';}
+function setSubImg(d){document.getElementById('sb-img-data').value=d;document.getElementById('sb-img-thumb').src=d;document.getElementById('sb-img-preview').style.display='flex';document.getElementById('sb-img-empty').style.display='none';}
+function handleSubImg(e){const f=e.target.files[0];if(!f)return;if(f.size>5*1024*1024){toast('Image too large (max 5MB)','var(--red)');return;}const r=new FileReader();r.onload=ev=>{const img=new Image();img.onload=()=>{const max=200;let w=img.width,h=img.height;if(w>h){if(w>max){h=h*max/w;w=max;}}else{if(h>max){w=w*max/h;h=max;}}const cv=document.createElement('canvas');cv.width=w;cv.height=h;cv.getContext('2d').drawImage(img,0,0,w,h);setSubImg(cv.toDataURL('image/jpeg',0.82));};img.src=ev.target.result;};r.readAsDataURL(f);}
+
+function openSubModal(){
+  document.getElementById('m-sub-title').textContent='Add Subscription';
+  ['sb-id','sb-name','sb-amt','sb-due','sb-cat','sb-source','sb-notes'].forEach(x=>document.getElementById(x).value='');
+  document.getElementById('sb-cycle').value='monthly';
+  document.getElementById('sb-status').value='active';
+  clearSubImg();
+  document.getElementById('m-sub').classList.add('open');
+}
+function editSub(id){
+  const s=(gs().subscriptions||[]).find(x=>x.id===id); if(!s) return;
+  document.getElementById('m-sub-title').textContent='Edit Subscription';
+  document.getElementById('sb-id').value=id;
+  document.getElementById('sb-name').value=s.name||'';
+  document.getElementById('sb-amt').value=s.amount||'';
+  document.getElementById('sb-cycle').value=s.cycle||'monthly';
+  document.getElementById('sb-due').value=s.due||'';
+  document.getElementById('sb-status').value=s.status||'active';
+  document.getElementById('sb-cat').value=s.cat||'';
+  document.getElementById('sb-source').value=s.source||'';
+  document.getElementById('sb-notes').value=s.notes||'';
+  if(s.image) setSubImg(s.image); else clearSubImg();
+  document.getElementById('m-sub').classList.add('open');
+}
+function saveSub(){
+  const id=document.getElementById('sb-id').value;
+  const sub={id:id||uid(),name:document.getElementById('sb-name').value.trim(),amount:+document.getElementById('sb-amt').value,cycle:document.getElementById('sb-cycle').value,due:+document.getElementById('sb-due').value||0,status:document.getElementById('sb-status').value,cat:document.getElementById('sb-cat').value.trim(),source:document.getElementById('sb-source').value.trim(),notes:document.getElementById('sb-notes').value,image:document.getElementById('sb-img-data').value||''};
+  if(!sub.name||!sub.amount){toast('Fill required fields','var(--red)');return;}
+  const st=gs(); st.subscriptions=st.subscriptions||[];
+  if(id){const i=st.subscriptions.findIndex(x=>x.id===id);if(i>-1)st.subscriptions[i]=sub;}else st.subscriptions.push(sub);
+  ss(st); closeM('m-sub'); toast(id?'Subscription updated':'Subscription added'); renderSubs();
+}
+function delSub(id){askConfirm(()=>{const s=gs();s.subscriptions=(s.subscriptions||[]).filter(x=>x.id!==id);ss(s);toast('Removed','var(--amber)');renderSubs();});}
+
+function monthlyCost(s){const a=+s.amount||0;return s.cycle==='yearly'?a/12:s.cycle==='weekly'?a*4.33:a;}
+
+function renderSubs(){
+  const st=gs(); const subs=(st.subscriptions||[]); const active=subs.filter(s=>s.status==='active');
+  const totMo=active.reduce((a,s)=>a+monthlyCost(s),0);
+  const totYr=totMo*12;
+  const next=active.filter(s=>s.due).map(s=>({s,d:nextDueDate(s.due)})).sort((a,b)=>a.d-b.d)[0];
+  const nextLbl=next?next.s.name+' · '+next.d.toLocaleDateString('en-PH',{month:'short',day:'numeric'}):'—';
+  document.getElementById('sub-metrics').innerHTML=`
+    <div class="mcard p"><div class="m-label">Monthly Total</div><div class="m-value p">${P(totMo)}</div><div class="m-sub">Active subscriptions</div></div>
+    <div class="mcard a"><div class="m-label">Yearly Equivalent</div><div class="m-value a">${P(totYr)}</div><div class="m-sub">Annual outflow</div></div>
+    <div class="mcard b"><div class="m-label">Active</div><div class="m-value b">${active.length}</div><div class="m-sub">of ${subs.length} total</div></div>
+    <div class="mcard t"><div class="m-label">Next Bill</div><div class="m-value t" style="font-size:15px">${nextLbl}</div><div class="m-sub">Coming up</div></div>`;
+
+  const today=new Date();today.setHours(0,0,0,0);
+  const upcoming=active.filter(s=>s.due).map(s=>{const d=nextDueDate(s.due);const diff=Math.round((d-today)/86400000);return {s,d,diff};}).filter(x=>x.diff<=30).sort((a,b)=>a.d-b.d);
+  document.getElementById('sub-upcoming').innerHTML=upcoming.length?upcoming.map(({s,d,diff})=>{
+    const thumb=s.image?`<img class="tx-thumb" src="${s.image}" alt="">`:`<span class="tx-thumb-fallback">${(s.name||'?').charAt(0).toUpperCase()}</span>`;
+    return `<div style="display:flex;align-items:center;gap:12px;padding:8px 4px;border-bottom:1px solid var(--hairline)">
+      ${thumb}
+      <div style="flex:1"><div style="font-weight:500">${s.name}</div><div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace">${s.cycle.toUpperCase()}${s.source?' · '+s.source:''}</div></div>
+      <div style="text-align:right;font-family:'DM Mono',monospace;color:var(--red);font-weight:600">${P(s.amount)}</div>
+      <div style="min-width:120px;text-align:right">${dueBadge(s.due)}</div>
+    </div>`;}).join(''):`<div class="empty"><div class="empty-icon">◎</div><div class="empty-text">No bills due in the next 30 days</div></div>`;
+
+  const sc={active:'<span class="chip chip-g">Active</span>',paused:'<span class="chip chip-a">Paused</span>',canceled:'<span class="chip chip-m">Canceled</span>'};
+  document.getElementById('sub-body').innerHTML=subs.length?subs.map(s=>{
+    const thumb=s.image?`<img class="tx-thumb" src="${s.image}" alt="">`:`<span class="tx-thumb-fallback">${(s.name||'?').charAt(0).toUpperCase()}</span>`;
+    return `<div class="tbl-row" style="grid-template-columns:1fr 90px 90px 110px 80px 72px;">
+      <div class="tx-desc-wrap">${thumb}<div><div style="font-weight:500">${s.name}</div><div class="tx-source-tag">${s.cat||''}${s.source?' · '+s.source:''}</div></div></div>
+      <div style="text-align:right;font-family:'DM Mono',monospace;color:var(--red);font-weight:600">${P(s.amount)}</div>
+      <div><span class="chip chip-m" style="font-size:10px;padding:2px 6px">${s.cycle}</span></div>
+      <div>${dueBadge(s.due)}</div>
+      <div>${sc[s.status]||''}</div>
+      <div style="display:flex;gap:3px;justify-content:flex-end">
+        <button class="icon-btn edt" onclick="editSub('${s.id}')" title="Edit"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M11 2l3 3-9 9H2v-3L11 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
+        <button class="icon-btn dlt dng" onclick="delSub('${s.id}')" title="Delete"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5 4V2h6v2M3 4l1 10h8l1-10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
+    </div>`;}).join(''):`<div class="empty"><div class="empty-icon">◎</div><div class="empty-text">No subscriptions yet — add one to start tracking</div></div>`;
 }
 
 // ─── INCOME ───────────────────────────────────────────
