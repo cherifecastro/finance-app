@@ -1554,10 +1554,11 @@ function renderUpwork(){
 function renderOverview(){
   const s=gs(); const txs=s.transactions||[];
   const incomeTxs=txs.filter(t=>t.type==='income');
+  const directExpenseTxs=txs.filter(t=>t.type==='expense'&&!t.budgetPayment);
   const paidBudgetTxs=[...paidBudgetAsExpenses(s),...budgetLoggedExpenseTxs(s)];
   const paidSubTxs=paidSubscriptionsAsExpenses(s);
   const paidLoanTxs=paidLoansAsExpenses(s);
-  const allExpenseTxs=[...paidBudgetTxs,...paidSubTxs,...paidLoanTxs];
+  const allExpenseTxs=[...directExpenseTxs,...paidBudgetTxs,...paidSubTxs,...paidLoanTxs];
   const totI=incomeTxs.reduce((a,t)=>a+(+t.amount||0),0);
   const totE=allExpenseTxs.reduce((a,t)=>a+(+t.amount||0),0);
   const totD=s.loans.reduce((a,l)=>a+(+l.total||0),0);
