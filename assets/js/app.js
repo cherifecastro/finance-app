@@ -361,6 +361,11 @@ function updateDueStatus(){
     ? `${summary.overdue} overdue, ${summary.today} due today, ${summary.soon+summary.upcoming} due within ${leadDays} days`
     : `No loan or subscription due within ${leadDays} days`;
 }
+function updateTopbarActions(panel){
+  const actions=document.getElementById('topbarActions');
+  if(!actions) return;
+  actions.hidden=panel!=='overview';
+}
 function renderOverviewDueAlerts(store){
   const root=document.getElementById('ov-alerts');
   if(!root) return;
@@ -727,6 +732,7 @@ function nav(el) {
   document.getElementById('panel-'+p).classList.add('active');
   document.getElementById('pageTitle').textContent = META[p][0];
   document.getElementById('pageSub').textContent = META[p][1];
+  updateTopbarActions(p);
   sessionStorage.setItem(PANEL_KEY,p);
   closeSidebar();
   renderP(p);
