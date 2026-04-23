@@ -58,7 +58,7 @@ export default {
 function corsHeaders(env) {
   return {
     'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,PUT,POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type,x-reminder-token,x-finance-token',
     'Access-Control-Max-Age': '86400'
   };
