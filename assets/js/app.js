@@ -1053,12 +1053,15 @@ function renderLoans(){
   const s=gs(); const loans=s.loans;
   const totD=loans.reduce((a,l)=>a+(+l.total||0),0);
   const totB=loans.reduce((a,l)=>a+(+l.balance||0),0);
-  const totM=loans.reduce((a,l)=>a+(+l.monthly||0),0);
+  const loanMonthlyDue=loans.reduce((a,l)=>a+(+l.monthly||0),0);
+  const mands=s.mandatoryExpenses||[];
+  const totMand=mands.reduce((a,m)=>a+(+m.amount||0),0);
+  const totM=loanMonthlyDue+totMand;
   const active=loans.filter(l=>l.status==='active').length;
   document.getElementById('ln-metrics').innerHTML=`
     <div class="mcard r"><div class="m-label">Total Debt</div><div class="m-value r">${P(totD)}</div><div class="m-sub">All loans</div></div>
     <div class="mcard a"><div class="m-label">Outstanding</div><div class="m-value a">${P(totB)}</div><div class="m-sub">Still owed</div></div>
-    <div class="mcard b"><div class="m-label">Monthly Due</div><div class="m-value b">${P(totM)}</div><div class="m-sub">Regular payments</div></div>
+    <div class="mcard b"><div class="m-label">Monthly Due</div><div class="m-value b">${P(totM)}</div><div class="m-sub">Loans ${P(loanMonthlyDue)} + mandatory ${P(totMand)}</div></div>
     <div class="mcard t"><div class="m-label">Active</div><div class="m-value t">${active}</div><div class="m-sub">Open loans</div></div>`;
   killChart('ch-loans');
   const cv=document.getElementById('ch-loans');
@@ -1081,7 +1084,6 @@ function renderLoans(){
         <button class="icon-btn dlt dng" onclick="delLoan('${l.id}')" title="Delete"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M5 4V2h6v2M3 4l1 10h8l1-10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       </div>
     </div>`;}).join('');
-  const mands=s.mandatoryExpenses; const totMand=mands.reduce((a,m)=>a+(+m.amount||0),0);
   document.getElementById('mand-body').innerHTML=mands.map(m=>`
     <div class="sum-row"><span>${m.name}</span><div style="display:flex;align-items:center;gap:8px"><span style="font-family:'DM Mono',monospace;color:var(--amber)">${P(m.amount)}</span>
     <button class="icon-btn" onclick="openMandModal('${m.id}')" style="opacity:.5"><svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M11 2l3 3-9 9H2v-3L11 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
