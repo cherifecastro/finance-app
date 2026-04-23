@@ -77,20 +77,20 @@
         <div class="page-sub" id="pageSub">Budget at a glance</div>
       </div>
     </div>
-    <div class="topbar-actions" id="topbarActions">
-      <div class="due-status ok" id="due-status">All caught up</div>
-      <div class="badge-now" id="todayBadge"></div>
-      <button class="btn btn-g" onclick="openTxModal()">
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-        Log Entry
-      </button>
-    </div>
   </div>
 
   <div class="content">
 
     <!-- OVERVIEW -->
     <div id="panel-overview" class="panel active">
+      <div class="overview-quickbar">
+        <div class="due-status ok" id="due-status">All caught up</div>
+        <div class="badge-now" id="todayBadge"></div>
+        <button class="btn btn-g" onclick="openTxModal()">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Log Entry
+        </button>
+      </div>
       <div class="hero">
         <svg class="hero-deco" viewBox="0 0 200 200" fill="none">
           <circle cx="100" cy="100" r="80" stroke="#6b56a8" stroke-width="1" stroke-dasharray="2 4"/>

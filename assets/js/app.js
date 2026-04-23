@@ -361,11 +361,6 @@ function updateDueStatus(){
     ? `${summary.overdue} overdue, ${summary.today} due today, ${summary.soon+summary.upcoming} due within ${leadDays} days`
     : `No loan or subscription due within ${leadDays} days`;
 }
-function updateTopbarActions(panel){
-  const actions=document.getElementById('topbarActions');
-  if(!actions) return;
-  actions.hidden=panel!=='overview';
-}
 function renderOverviewDueAlerts(store){
   const root=document.getElementById('ov-alerts');
   if(!root) return;
@@ -732,8 +727,12 @@ function nav(el) {
   document.getElementById('panel-'+p).classList.add('active');
   document.getElementById('pageTitle').textContent = META[p][0];
   document.getElementById('pageSub').textContent = META[p][1];
-  updateTopbarActions(p);
+  document.body.dataset.panel=p;
   sessionStorage.setItem(PANEL_KEY,p);
+  const url=new URL(window.location.href);
+  if(p==='overview') url.searchParams.delete('panel');
+  else url.searchParams.set('panel',p);
+  window.history.replaceState({},'',url);
   closeSidebar();
   renderP(p);
 }
@@ -1681,7 +1680,7 @@ function clearAll(){
 // ─── INIT ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded',()=>{
   const now=new Date();
-  document.getElementById('todayBadge').textContent=now.toLocaleDateString('en-PH',{day:'numeric',month:'short',year:'numeric'});
+  document.getElementById('todayBadge').textContent=now.toLocaleDateString('en-PH',{month:'short',day:'numeric'});
   cloudToken=sessionStorage.getItem(CLOUD_TOKEN_KEY)||'';
   cloudApiUrl=sessionStorage.getItem(CLOUD_API_KEY)||DEFAULT_CLOUD_API_URL;
   if(!cloudToken){

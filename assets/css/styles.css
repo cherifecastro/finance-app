@@ -303,6 +303,15 @@ body::after{
   justify-content:flex-end;
 }
 
+.overview-quickbar{
+  display:flex;
+  gap:8px;
+  justify-content:flex-end;
+  align-items:center;
+  flex-wrap:wrap;
+  margin-bottom:1rem;
+}
+
 /* ───── BUTTONS ───── */
 .btn{
   display:inline-flex;
@@ -1344,6 +1353,7 @@ body::after{
   border:1px solid var(--hairline);
   border-radius:16px;
   box-shadow:var(--shadow-xs);
+  overflow:hidden;
 }
 
 .filter-bar .form-select,.filter-bar .form-input{
@@ -1351,6 +1361,14 @@ body::after{
   font-size:12.5px;
   padding:7px 11px;
   background:var(--surface);
+  max-width:100%;
+  min-width:0;
+}
+
+.filter-bar input[type="date"]{
+  width:min(100%, 165px);
+  min-width:0;
+  max-width:100%;
 }
 
 .filter-bar .form-select{padding-right:30px;}
@@ -1754,15 +1772,14 @@ body::after{
     display:inline-flex;
   }
 
-  .topbar-actions{
-    width:100%;
-    justify-content:space-between;
-    flex-wrap:wrap;
-    min-width:0;
-  }
-
   .content{
     padding:1rem .9rem 1.4rem;
+    width:100%;
+  }
+
+  .overview-quickbar{
+    display:grid;
+    grid-template-columns:1fr;
     width:100%;
   }
 
@@ -1789,6 +1806,10 @@ body::after{
     display:grid;
     grid-template-columns:repeat(2,minmax(0,1fr));
     gap:8px;
+    width:100%;
+  }
+
+  .filter-bar input[type="date"]{
     width:100%;
   }
 
@@ -1963,17 +1984,9 @@ body::after{
     overflow-x:clip;
   }
 
-  .topbar-actions{
-    display:grid;
-    grid-template-columns:1fr;
-    width:100%;
-    max-width:100%;
-  }
-
-  .topbar-actions .cloud-status,
-  .topbar-actions .due-status,
-  .topbar-actions .badge-now,
-  .topbar-actions .btn{
+  .overview-quickbar .due-status,
+  .overview-quickbar .badge-now,
+  .overview-quickbar .btn{
     width:100%;
     text-align:left;
     justify-content:flex-start;
