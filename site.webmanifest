@@ -1,0 +1,17 @@
+{
+  "name": "Cheri Finance",
+  "short_name": "Cheri Finance",
+  "description": "Personal budget tracker for Cheri Finance.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eef4fb",
+  "theme_color": "#102540",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "64x64",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
