@@ -2,9 +2,11 @@
 const CLOUD_TOKEN_KEY = 'cheri_finance_cloud_token';
 const CLOUD_API_KEY = 'cheri_finance_cloud_api';
 const PANEL_KEY = 'kf_v4_panel';
+const DEFAULT_CLOUD_API_URL = 'https://cheri-finance-reminders.cherife1198.workers.dev/api/data';
+const DEFAULT_REMINDER_API_URL = 'https://cheri-finance-reminders.cherife1198.workers.dev/api/reminders/sync';
 let STORE = normalizeStore();
 let cloudToken = '';
-let cloudApiUrl = '/api/data';
+let cloudApiUrl = DEFAULT_CLOUD_API_URL;
 let cloudReady = false;
 let cloudSaveTimer = null;
 let cloudSaveInFlight = false;
@@ -28,7 +30,7 @@ function td() { return toLocalYmd(new Date()); }
 
 function seed() {
   return {
-    settings: { name:'Cheri', rate:59.891, balance:0, savings:0, savingsPrevious:0, savingsHistory:[], reminderEmail:'cherife1198@gmail.com', remindersEnabled:true, reminderLeadDays:3, reminderApiUrl:'/api/reminders/sync', reminderSyncToken:'' },
+    settings: { name:'Cheri', rate:59.891, balance:0, savings:0, savingsPrevious:0, savingsHistory:[], reminderEmail:'cherife1198@gmail.com', remindersEnabled:true, reminderLeadDays:3, reminderApiUrl:DEFAULT_REMINDER_API_URL, reminderSyncToken:'' },
     categories: {
       expense: ['OTHER'],
       income: ['OTHER INCOME']
@@ -114,7 +116,7 @@ function hideUnlock(){
 
 async function unlockCloudData(){
   cloudToken=(document.getElementById('unlock-token')?.value||'').trim();
-  cloudApiUrl=(document.getElementById('unlock-api')?.value||'/api/data').trim()||'/api/data';
+  cloudApiUrl=(document.getElementById('unlock-api')?.value||DEFAULT_CLOUD_API_URL).trim()||DEFAULT_CLOUD_API_URL;
   if(!cloudToken){
     showUnlock('Token is required so the cloud data stays private.');
     return;
@@ -280,7 +282,7 @@ function reminderSettings(settings){
     enabled:settings?.remindersEnabled!==false,
     email:(settings?.reminderEmail||'cherife1198@gmail.com').trim(),
     leadDays:Math.max(0,Math.min(30,+settings?.reminderLeadDays||3)),
-    apiUrl:(settings?.reminderApiUrl||'/api/reminders/sync').trim()||'/api/reminders/sync',
+    apiUrl:(settings?.reminderApiUrl||DEFAULT_REMINDER_API_URL).trim()||DEFAULT_REMINDER_API_URL,
     syncToken:(settings?.reminderSyncToken||'').trim()
   };
 }
@@ -324,7 +326,7 @@ function applySettingsFromForm(s){
   s.settings.reminderEmail=(document.getElementById('s-rem-email')?.value||'cherife1198@gmail.com').trim();
   s.settings.remindersEnabled=!!document.getElementById('s-rem-enabled')?.checked;
   s.settings.reminderLeadDays=Math.max(0,Math.min(30,+document.getElementById('s-rem-lead')?.value||3));
-  s.settings.reminderApiUrl=(document.getElementById('s-rem-api')?.value||'/api/reminders/sync').trim()||'/api/reminders/sync';
+  s.settings.reminderApiUrl=(document.getElementById('s-rem-api')?.value||DEFAULT_REMINDER_API_URL).trim()||DEFAULT_REMINDER_API_URL;
   s.settings.reminderSyncToken=(document.getElementById('s-rem-token')?.value||'').trim();
 }
 function normalizeRangeValues(start,end){
@@ -1596,7 +1598,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   const now=new Date();
   document.getElementById('todayBadge').textContent=now.toLocaleDateString('en-PH',{day:'numeric',month:'short',year:'numeric'});
   cloudToken=sessionStorage.getItem(CLOUD_TOKEN_KEY)||'';
-  cloudApiUrl=sessionStorage.getItem(CLOUD_API_KEY)||'/api/data';
+  cloudApiUrl=sessionStorage.getItem(CLOUD_API_KEY)||DEFAULT_CLOUD_API_URL;
   if(!cloudToken){
     showUnlock();
     return;

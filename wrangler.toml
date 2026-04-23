@@ -1,10 +1,12 @@
 name = "cheri-finance-reminders"
 main = "workers/email-reminders.mjs"
 compatibility_date = "2026-04-23"
+workers_dev = true
+pages_build_output_dir = "dist"
 
 [triggers]
 crons = ["0 0 * * *"]
 
 [[kv_namespaces]]
 binding = "FINANCE_KV"
-id = "replace-with-cloudflare-kv-namespace-id"
+id = "e82da493e91d4564bb369e0073114ebd"
