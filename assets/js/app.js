@@ -31,7 +31,7 @@ function td() { return toLocalYmd(new Date()); }
 
 function seed() {
   return {
-    settings: { name:'Cheri', rate:59.891, balance:0, savings:0, savingsPrevious:0, savingsHistory:[], dueAlertDays:7 },
+    settings: { name:'Cheri', rate:59.891, balance:0, savings:0, savingsPrevious:0, savingsHistory:[], monthlySavingsGoal:0, dueAlertDays:7 },
     categories: {
       expense: ['OTHER'],
       income: ['OTHER INCOME']
@@ -193,17 +193,127 @@ function nextRecurringDate(dateStr, cycle='monthly'){
   }
   return candidate;
 }
+function shiftRecurringDate(dateStr, cycle='monthly', steps=1){
+  const normalized=normalizeDateInput(dateStr);
+  if(!normalized) return '';
+  const anchor=new Date(normalized+'T00:00:00');
+  if(Number.isNaN(anchor.getTime())) return '';
+  return toLocalYmd(recurringDateFromAnchor(anchor, cycle, steps));
+}
+function recurringTimeline(dateStr, cycle='monthly', refDate=new Date()){
+  const normalized=normalizeDateInput(dateStr);
+  if(!normalized) return {previousDue:'',currentDue:'',nextDue:''};
+  const ref=refDate instanceof Date ? new Date(refDate.getTime()) : new Date(refDate);
+  if(Number.isNaN(ref.getTime())) return {previousDue:'',currentDue:'',nextDue:normalized};
+  ref.setHours(0,0,0,0);
+  const refYmd=toLocalYmd(ref);
+  if(normalized>refYmd) return {previousDue:'',currentDue:'',nextDue:normalized};
+  let previousDue='';
+  let currentDue=normalized;
+  let step=0;
+  while(step<600){
+    const candidate=shiftRecurringDate(normalized, cycle, step+1);
+    if(!candidate) break;
+    if(candidate>refYmd) return {previousDue,currentDue,nextDue:candidate};
+    previousDue=currentDue;
+    currentDue=candidate;
+    step++;
+  }
+  return {previousDue,currentDue,nextDue:shiftRecurringDate(currentDue||normalized, cycle, 1)};
+}
 function subscriptionAnchorDate(sub){
   const direct=normalizeDateInput(sub?.dueDate||sub?.billingDate||'');
   if(direct) return direct;
   const legacyDue=nextDueDate(sub?.due);
   return legacyDue?toLocalYmd(legacyDue):'';
 }
-function subscriptionNextDue(sub){
+function dayDiff(dateA, dateB){
+  const a=normalizeDateInput(dateA);
+  const b=normalizeDateInput(dateB);
+  if(!a||!b) return Number.POSITIVE_INFINITY;
+  const da=new Date(a+'T00:00:00');
+  const db=new Date(b+'T00:00:00');
+  return Math.round((da-db)/86400000);
+}
+function subscriptionInferCycleKey(sub, paymentDate){
+  const paidOn=normalizeDateInput(paymentDate);
   const anchor=subscriptionAnchorDate(sub);
-  return nextRecurringDate(anchor, sub?.cycle||'monthly');
+  if(!paidOn||!anchor) return '';
+  const cycle=sub?.cycle||'monthly';
+  const timeline=recurringTimeline(anchor, cycle, new Date(paidOn+'T00:00:00'));
+  if(!timeline.currentDue) return timeline.nextDue||anchor;
+  if(!timeline.nextDue) return timeline.currentDue;
+  const prevDiff=Math.abs(dayDiff(paidOn, timeline.currentDue));
+  const nextDiff=Math.abs(dayDiff(timeline.nextDue, paidOn));
+  return nextDiff<prevDiff ? timeline.nextDue : timeline.currentDue;
+}
+function subscriptionPayments(sub){
+  const raw=Array.isArray(sub?.payments)?sub.payments:[];
+  const normalized=raw
+    .map((payment,index)=>{
+      const date=normalizeDateInput(payment?.date||payment?.paidDate||'');
+      return {
+        id:payment?.id||`sub-pay-${index}`,
+        date,
+        amount:+payment?.amount||+sub?.amount||0,
+        cycleKey:normalizeDateInput(payment?.cycleKey)||subscriptionInferCycleKey(sub, date)
+      };
+    })
+    .filter(payment=>payment.date&&payment.cycleKey);
+  const legacyDate=normalizeDateInput(sub?.paidDate||'');
+  if(!normalized.length && sub?.paid && legacyDate){
+    normalized.push({
+      id:'legacy-paid',
+      date:legacyDate,
+      amount:+sub?.amount||0,
+      cycleKey:subscriptionInferCycleKey(sub, legacyDate)
+    });
+  }
+  return normalized.sort((a,b)=>a.date.localeCompare(b.date)||a.cycleKey.localeCompare(b.cycleKey));
+}
+function latestSubscriptionPayment(payments){
+  return [...payments].sort((a,b)=>a.date.localeCompare(b.date)).pop()||null;
+}
+function subscriptionCycleState(sub, refDate=new Date()){
+  const anchor=subscriptionAnchorDate(sub);
+  const cycle=sub?.cycle||'monthly';
+  if(!anchor) return {anchor:'',cycle,paid:false,displayDue:'',activeDue:'',nextDue:'',paidEntry:null,payments:[]};
+  const timeline=recurringTimeline(anchor, cycle, refDate);
+  const payments=subscriptionPayments(sub);
+  const currentDue=timeline.currentDue||timeline.nextDue||anchor;
+  const currentPaidEntry=payments.filter(payment=>payment.cycleKey===currentDue).sort((a,b)=>b.date.localeCompare(a.date))[0]||null;
+  let activeDue=currentDue;
+  if(timeline.currentDue&&currentPaidEntry){
+    activeDue=timeline.nextDue||shiftRecurringDate(currentDue, cycle, 1);
+  }
+  const paidEntry=payments.filter(payment=>payment.cycleKey===activeDue).sort((a,b)=>b.date.localeCompare(a.date))[0]||null;
+  const nextDue=shiftRecurringDate(activeDue, cycle, 1);
+  return {
+    anchor,
+    cycle,
+    payments,
+    paid:!!paidEntry,
+    paidEntry,
+    activeDue,
+    displayDue:paidEntry?(nextDue||activeDue):activeDue,
+    nextDue
+  };
+}
+function syncSubscriptionPayments(sub){
+  const payments=subscriptionPayments(sub);
+  sub.payments=payments;
+  const latest=latestSubscriptionPayment(payments);
+  sub.paidDate=latest?.date||'';
+  sub.paid=subscriptionCycleState({...sub,payments}).paid;
+  return sub;
+}
+function subscriptionNextDue(sub){
+  const state=subscriptionCycleState(sub);
+  if(!state.displayDue) return null;
+  return new Date(state.displayDue+'T00:00:00');
 }
 function subscriptionDueBadge(sub){
+  const state=subscriptionCycleState(sub);
   const d=subscriptionNextDue(sub);
   if(!d) return '<span style="color:var(--muted);font-family:\'DM Mono\',monospace;font-size:11px">—</span>';
   const t=new Date();
@@ -215,6 +325,7 @@ function subscriptionDueBadge(sub){
   else if(diff<0){cls='chip-r';txt='Overdue '+(-diff)+'d · '+ds;}
   else if(diff<=3){cls='chip-a';txt='In '+diff+'d · '+ds;}
   else if(diff<=7){cls='chip-b';txt='In '+diff+'d · '+ds;}
+  if(state.paid&&diff>0) txt='Next '+ds;
   return `<span class="chip ${cls}" style="font-size:10px;padding:2px 6px;white-space:nowrap">${txt}</span>`;
 }
 
@@ -257,6 +368,26 @@ function savingsDeltaText(delta){
 }
 function savingsDeltaLabel(delta){
   return delta>0?'Added this month':delta<0?'Lessened this month':'Changed this month';
+}
+function savingsGoalAmount(settings){
+  return +(settings?.monthlySavingsGoal||0)||0;
+}
+function savingsGoalProgress(settings){
+  const goal=savingsGoalAmount(settings);
+  const delta=savingsMonthDelta(settings);
+  if(goal<=0){
+    return {goal:0,progress:0,tone:'m',label:'No monthly goal yet'};
+  }
+  if(delta>=goal){
+    return {goal,progress:100,tone:'g',label:`Goal hit · ${signedPeso(delta-goal)} extra`};
+  }
+  if(delta>0){
+    return {goal,progress:Math.max(0,Math.min(100,(delta/goal)*100)),tone:'b',label:`${P(goal-delta)} left to hit goal`};
+  }
+  if(delta<0){
+    return {goal,progress:0,tone:'r',label:`Goal ${P(goal)} · ${signedPeso(delta)} so far`};
+  }
+  return {goal,progress:0,tone:'m',label:`Goal ${P(goal)} this month`};
 }
 function recordSavingsSnapshot(settings,nextAmount,previousAmount){
   const curM=td().slice(0,7);
@@ -317,9 +448,10 @@ function collectDueAlerts(store){
   const leadDays=dueAlertLeadDays(store?.settings||{});
   const items=[];
   (store.subscriptions||[]).forEach(sub=>{
-    if(!sub||sub.status!=='active'||sub.paid) return;
-    const next=subscriptionNextDue(sub);
-    const due=next?toLocalYmd(next):'';
+    if(!sub||sub.status!=='active') return;
+    const state=subscriptionCycleState(sub);
+    if(state.paid||!state.displayDue) return;
+    const due=state.displayDue;
     const item=dueAlertItem('subscription',sub.id,sub.name,+sub.amount||0,due,sub.source||sub.cycle||'',leadDays);
     if(item) items.push(item);
   });
@@ -436,6 +568,7 @@ function applySettingsFromForm(s){
   const nextSavings=+document.getElementById('s-save')?.value||0;
   s.settings.name=document.getElementById('s-name')?.value||'Cheri';
   s.settings.rate=+document.getElementById('s-rate')?.value||59.891;
+  s.settings.monthlySavingsGoal=+document.getElementById('s-save-goal')?.value||0;
   s.settings.balance=nextSavings;
   recordSavingsSnapshot(s.settings,nextSavings,previousSavings);
   s.settings.dueAlertDays=dueAlertLeadDays(s.settings);
@@ -581,19 +714,15 @@ function paidBudgetAsExpenses(store){
 }
 function paidSubscriptionsAsExpenses(store){
   return (store.subscriptions||[])
-    .filter(s=>s&&s.paid)
-    .map(s=>{
-      const date=normalizeDateInput(s.paidDate)||normalizeDateInput(s.date)||'';
-      return {
+    .flatMap(s=>subscriptionPayments(s).map(payment=>({
         type:'expense',
-        amount:+s.amount||0,
+        amount:+payment.amount||+s.amount||0,
         cat:s.cat||s.name||'SUBSCRIPTION',
-        desc:`${s.name||'Subscription'} (paid)`,
-        date,
-        startDate:date,
-        endDate:date
-      };
-    })
+        desc:`${s.name||'Subscription'} payment`,
+        date:payment.date,
+        startDate:payment.date,
+        endDate:payment.date
+      })))
     .filter(t=>(+t.amount||0)>0);
 }
 function isLoanSettled(loan){
@@ -1144,6 +1273,7 @@ function openSubModal(){
 }
 function editSub(id){
   const s=(gs().subscriptions||[]).find(x=>x.id===id); if(!s) return;
+  const state=subscriptionCycleState(s);
   document.getElementById('m-sub-title').textContent='Edit Subscription';
   document.getElementById('sb-id').value=id;
   document.getElementById('sb-name').value=s.name||'';
@@ -1151,8 +1281,8 @@ function editSub(id){
   document.getElementById('sb-cycle').value=s.cycle||'monthly';
   document.getElementById('sb-due').value=subscriptionAnchorDate(s);
   document.getElementById('sb-status').value=s.status||'active';
-  document.getElementById('sb-paid').value=s.paid?'paid':'unpaid';
-  document.getElementById('sb-paid-date').value=s.paidDate||'';
+  document.getElementById('sb-paid').value=state.paid?'paid':'unpaid';
+  document.getElementById('sb-paid-date').value=state.paidEntry?.date||'';
   document.getElementById('sb-cat').value=s.cat||'';
   document.getElementById('sb-source').value=s.source||'';
   document.getElementById('sb-notes').value=s.notes||'';
@@ -1166,8 +1296,21 @@ function saveSub(){
   const paid=document.getElementById('sb-paid').value==='paid';
   const paidDateInput=normalizeDateInput(document.getElementById('sb-paid-date').value);
   const dueDateInput=normalizeDateInput(document.getElementById('sb-due').value);
-  const sub={id:id||uid(),name:document.getElementById('sb-name').value.trim(),amount:+document.getElementById('sb-amt').value,cycle:document.getElementById('sb-cycle').value,dueDate:dueDateInput,status:document.getElementById('sb-status').value,paid,paidDate:paid?(paidDateInput||normalizeDateInput(existing?.paidDate)||td()):'',cat:document.getElementById('sb-cat').value.trim(),source:document.getElementById('sb-source').value.trim(),notes:document.getElementById('sb-notes').value,image:document.getElementById('sb-img-data').value||''};
+  const sub={id:id||uid(),name:document.getElementById('sb-name').value.trim(),amount:+document.getElementById('sb-amt').value,cycle:document.getElementById('sb-cycle').value,dueDate:dueDateInput,status:document.getElementById('sb-status').value,paid:false,paidDate:'',payments:subscriptionPayments(existing),cat:document.getElementById('sb-cat').value.trim(),source:document.getElementById('sb-source').value.trim(),notes:document.getElementById('sb-notes').value,image:document.getElementById('sb-img-data').value||''};
   if(!sub.name||!sub.amount){toast('Fill required fields','var(--red)');return;}
+  const state=subscriptionCycleState(sub);
+  const cycleKey=state.activeDue||subscriptionAnchorDate(sub);
+  if(paid&&!cycleKey){toast('Add a billing date to track the recurring cycle','var(--red)');return;}
+  sub.payments=subscriptionPayments(sub).filter(payment=>payment.cycleKey!==cycleKey);
+  if(paid&&cycleKey){
+    sub.payments.push({
+      id:state.paidEntry?.id||uid(),
+      date:paidDateInput||state.paidEntry?.date||td(),
+      amount:+sub.amount||0,
+      cycleKey
+    });
+  }
+  syncSubscriptionPayments(sub);
   if(id){const i=st.subscriptions.findIndex(x=>x.id===id);if(i>-1)st.subscriptions[i]=sub;}else st.subscriptions.push(sub);
   ss(st); closeM('m-sub'); toast(id?'Subscription updated':'Subscription added'); renderSubs();
 }
@@ -1176,15 +1319,21 @@ function toggleSubPaid(id){
   const s=gs(); s.subscriptions=s.subscriptions||[];
   const i=s.subscriptions.findIndex(x=>x.id===id);
   if(i<0) return;
-  if(s.subscriptions[i].paid){
-    s.subscriptions[i].paid=false;
-    s.subscriptions[i].paidDate='';
-  } else {
-    s.subscriptions[i].paid=true;
-    s.subscriptions[i].paidDate=normalizeDateInput(s.subscriptions[i].paidDate)||td();
+  const sub=s.subscriptions[i];
+  const state=subscriptionCycleState(sub);
+  if(!state.activeDue){
+    toast('Add a billing date first','var(--red)');
+    return;
   }
+  sub.payments=subscriptionPayments(sub).filter(payment=>payment.cycleKey!==state.activeDue);
+  if(!state.paid){
+    sub.payments.push({id:uid(),date:td(),amount:+sub.amount||0,cycleKey:state.activeDue});
+  } else {
+    sub.paidDate='';
+  }
+  syncSubscriptionPayments(sub);
   ss(s);
-  toast(s.subscriptions[i].paid?'Subscription marked paid':'Subscription marked unpaid');
+  toast(state.paid?'Subscription marked unpaid':'Subscription marked paid');
   renderSubs();
 }
 
@@ -1203,7 +1352,7 @@ function renderSubs(){
     <div class="mcard t"><div class="m-label">Next Bill</div><div class="m-value t" style="font-size:15px">${nextLbl}</div><div class="m-sub">Coming up</div></div>`;
 
   const today=new Date();today.setHours(0,0,0,0);
-  const upcoming=active.map(s=>{const d=subscriptionNextDue(s);if(!d)return null;const diff=Math.round((d-today)/86400000);return {s,d,diff};}).filter(Boolean).filter(x=>x.diff<=30).sort((a,b)=>a.d-b.d);
+  const upcoming=active.map(s=>{const state=subscriptionCycleState(s);const d=subscriptionNextDue(s);if(!d||state.paid)return null;const diff=Math.round((d-today)/86400000);return {s,d,diff,state};}).filter(Boolean).filter(x=>x.diff<=30).sort((a,b)=>a.d-b.d);
   document.getElementById('sub-upcoming').innerHTML=upcoming.length?upcoming.map(({s,d,diff})=>{
     const thumb=s.image?`<img class="tx-thumb" src="${s.image}" alt="">`:`<span class="tx-thumb-fallback">${(s.name||'?').charAt(0).toUpperCase()}</span>`;
     return `<div style="display:flex;align-items:center;gap:12px;padding:8px 4px;border-bottom:1px solid var(--hairline)">
@@ -1215,6 +1364,7 @@ function renderSubs(){
 
   const sc={active:'<span class="chip chip-g">Active</span>',paused:'<span class="chip chip-a">Paused</span>',canceled:'<span class="chip chip-m">Canceled</span>'};
   document.getElementById('sub-body').innerHTML=subs.length?subs.map(s=>{
+    const state=subscriptionCycleState(s);
     const thumb=s.image?`<img class="tx-thumb" src="${s.image}" alt="">`:`<span class="tx-thumb-fallback">${(s.name||'?').charAt(0).toUpperCase()}</span>`;
     return `<div class="tbl-row tbl-row-sub">
       <div class="tbl-cell tbl-cell-primary" data-label="Name"><div class="tx-desc-wrap">${thumb}<div><div style="font-weight:500">${s.name}</div><div class="tx-source-tag">${s.cat||''}${s.source?' · '+s.source:''}</div></div></div></div>
@@ -1222,7 +1372,7 @@ function renderSubs(){
       <div class="tbl-cell" data-label="Cycle"><span class="chip chip-m" style="font-size:10px;padding:2px 6px">${s.cycle}</span></div>
       <div class="tbl-cell" data-label="Next due">${subscriptionDueBadge(s)}</div>
       <div class="tbl-cell" data-label="Status">${sc[s.status]||''}</div>
-      <div class="tbl-cell" data-label="Payment">${s.paid?'<span class="chip chip-g">Paid</span>':'<span class="chip chip-a">Unpaid</span>'}</div>
+      <div class="tbl-cell" data-label="Payment">${state.paid?`<span class="chip chip-g">Paid</span><div class="tx-source-tag" style="margin-top:4px">${fmtDateLong(state.paidEntry?.date)}</div>`:'<span class="chip chip-a">Unpaid</span>'}</div>
       <div class="tbl-cell tbl-actions" data-label="Actions" style="display:flex;gap:3px;justify-content:flex-end">
         <button class="icon-btn" onclick="toggleSubPaid('${s.id}')" title="Toggle paid/unpaid"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3 5h8M11 3l2 2-2 2M13 11H5M5 9l-2 2 2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
         <button class="icon-btn edt" onclick="editSub('${s.id}')" title="Edit"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M11 2l3 3-9 9H2v-3L11 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
@@ -1573,6 +1723,7 @@ function renderOverview(){
   const savingsBase=lastMonthSavings(s.settings);
   const savingsDelta=savingsMonthDelta(s.settings);
   const savingsDeltaTone=savingsDeltaClass(savingsDelta);
+  const savingsGoal=savingsGoalProgress(s.settings);
   const breakdownRows=(entries,total,color,emptyTitle,emptyNote)=>entries.length
     ? entries.slice(0,3).map(([label,amt])=>`<div class="mini-row"><div><strong>${label}</strong><small>${Math.round(((+amt||0)/(total||1))*100)}% share</small></div><div style="font-family:'IBM Plex Mono',monospace;color:${color}">${P(amt)}</div></div>`).join('')
     : `<div class="mini-row"><div><strong>${emptyTitle}</strong><small>${emptyNote}</small></div><div style="font-family:'IBM Plex Mono',monospace;color:var(--muted)">—</div></div>`;
@@ -1587,6 +1738,13 @@ function renderOverview(){
       <div class="m-label">Starting Balance</div>
       <div class="m-value b">${P(savings)}</div>
       <div class="m-sub savings-change ${savingsDeltaTone}">Last month ${P(savingsBase)} · ${savingsDeltaLabel(savingsDelta).replace(' this month','')}: ${savingsDeltaText(savingsDelta)}</div>
+      <div class="savings-goal">
+        <div class="savings-goal-copy">
+          <span>Goal ${savingsGoal.goal?P(savingsGoal.goal):'—'}</span>
+          <strong class="${savingsGoal.tone}">${savingsGoal.label}</strong>
+        </div>
+        <div class="savings-goal-track"><div class="savings-goal-fill ${savingsGoal.tone}" style="width:${savingsGoal.progress}%"></div></div>
+      </div>
     </div>`;
   const iBC={}; incomeTxs.forEach(t=>{iBC[t.cat]=(iBC[t.cat]||0)+(+t.amount||0);});
   const iE=Object.entries(iBC).sort((a,b)=>b[1]-a[1]);
@@ -1627,6 +1785,8 @@ function renderSettings(){
   const previousInput=document.getElementById('s-save-prev');
   if(previousInput) previousInput.value=lastMonthSavings(s.settings);
   document.getElementById('s-save').value=s.settings.savings||0;
+  const goalInput=document.getElementById('s-save-goal');
+  if(goalInput) goalInput.value=savingsGoalAmount(s.settings)||0;
   const alertNote=document.getElementById('s-alert-note');
   if(alertNote){
     const leadDays=dueAlertLeadDays(s.settings);
@@ -1639,7 +1799,8 @@ function renderSettings(){
   const savingsNote=document.getElementById('s-save-note');
   if(savingsNote){
     const delta=savingsMonthDelta(s.settings);
-    savingsNote.innerHTML=`Last month: <strong>${P(lastMonthSavings(s.settings))}</strong> · ${savingsDeltaLabel(delta)}: <strong class="save-delta ${savingsDeltaClass(delta)}">${savingsDeltaText(delta)}</strong>`;
+    const goal=savingsGoalProgress(s.settings);
+    savingsNote.innerHTML=`Last month: <strong>${P(lastMonthSavings(s.settings))}</strong> · ${savingsDeltaLabel(delta)}: <strong class="save-delta ${savingsDeltaClass(delta)}">${savingsDeltaText(delta)}</strong> · Goal: <strong>${goal.goal?P(goal.goal):'—'}</strong> · <strong class="save-delta ${goal.tone}">${goal.label}</strong>`;
   }
   document.getElementById('sf-name').textContent=s.settings.name||'Cheri';
   renderCats();
