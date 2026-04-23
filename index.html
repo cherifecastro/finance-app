@@ -182,13 +182,8 @@
 
     <!-- INCOME -->
     <div id="panel-income" class="panel">
-      <div class="filter-bar">
-        <input class="form-input" id="if-start" type="date" aria-label="Income start date" onchange="renderIncome()">
-        <input class="form-input" id="if-end" type="date" aria-label="Income end date" onchange="renderIncome()">
-        <div class="filter-actions">
-          <button class="btn" onclick="document.getElementById('if-start').value='';document.getElementById('if-end').value='';renderIncome()">Clear dates</button>
-          <button class="btn btn-g" style="margin-left:auto" onclick="openTxModal('income')">+ Log Income</button>
-        </div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:1.25rem;">
+        <button class="btn btn-g" onclick="openTxModal('income')">+ Log Income</button>
       </div>
       <div class="metric-grid" id="inc-metrics"></div>
       <div class="card"><div class="card-header"><div class="card-title">Income streams</div></div><div class="chart-wrap" style="height:230px"><canvas id="ch-inc-bar" role="img" aria-label="Income bar">Income by source</canvas></div></div>
@@ -217,13 +212,8 @@
 
     <!-- UPWORK -->
     <div id="panel-upwork" class="panel">
-      <div class="filter-bar">
-        <input class="form-input" id="uwf-start" type="date" aria-label="Upwork start date" onchange="renderUpwork()">
-        <input class="form-input" id="uwf-end" type="date" aria-label="Upwork end date" onchange="renderUpwork()">
-        <div class="filter-actions">
-          <button class="btn" onclick="document.getElementById('uwf-start').value='';document.getElementById('uwf-end').value='';renderUpwork()">Clear dates</button>
-          <button class="btn btn-g" style="margin-left:auto" onclick="openUpworkModal()">+ Log Hours</button>
-        </div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:1.25rem;">
+        <button class="btn btn-g" onclick="openUpworkModal()">+ Log Hours</button>
       </div>
       <div class="metric-grid" id="uw-metrics"></div>
       <div class="card"><div class="card-header"><div class="card-title">Daily earnings (PHP)</div></div><div class="chart-wrap" style="height:200px"><canvas id="ch-uw" role="img" aria-label="Upwork daily">Daily Upwork earnings</canvas></div></div>
