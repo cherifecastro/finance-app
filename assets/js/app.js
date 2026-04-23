@@ -2,6 +2,7 @@
 const CLOUD_TOKEN_KEY = 'cheri_finance_cloud_token';
 const CLOUD_API_KEY = 'cheri_finance_cloud_api';
 const PANEL_KEY = 'kf_v4_panel';
+const PANEL_TAB_PREFIX = 'cheri-finance-panel:';
 const DUE_PING_SESSION_KEY = 'cheri_finance_due_ping';
 const DEFAULT_CLOUD_API_URL = 'https://cheri-finance-reminders.cherife1198.workers.dev/api/data';
 let STORE = normalizeStore();
@@ -701,6 +702,8 @@ const META = {
 function getInitialPanel(){
   const urlPanel=(new URLSearchParams(window.location.search).get('panel')||'').trim().toLowerCase();
   if(urlPanel && META[urlPanel]) return urlPanel;
+  const tabPanel=(window.name||'').startsWith(PANEL_TAB_PREFIX)?window.name.slice(PANEL_TAB_PREFIX.length):'';
+  if(tabPanel && META[tabPanel]) return tabPanel;
   return sessionStorage.getItem(PANEL_KEY)||'overview';
 }
 
@@ -729,6 +732,7 @@ function nav(el) {
   document.getElementById('pageSub').textContent = META[p][1];
   document.body.dataset.panel=p;
   sessionStorage.setItem(PANEL_KEY,p);
+  window.name=`${PANEL_TAB_PREFIX}${p}`;
   const url=new URL(window.location.href);
   if(p==='overview') url.searchParams.delete('panel');
   else url.searchParams.set('panel',p);
