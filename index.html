@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
-<link rel="stylesheet" href="assets/css/styles.css?v=20260423-0719">
+<link rel="stylesheet" href="assets/css/styles.css?v=20260423-1845">
 </head>
 <body>
 <div class="layout">
@@ -79,6 +79,7 @@
     </div>
     <div class="topbar-actions">
       <div class="cloud-status" id="cloud-status">Cloud locked</div>
+      <div class="due-status ok" id="due-status">All caught up</div>
       <div class="badge-now" id="todayBadge"></div>
       <button class="btn btn-g" onclick="openTxModal()">
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -101,6 +102,7 @@
         <div class="hero-greet" id="hero-greet">Welcome back</div>
         <div class="hero-title">Hello, <em id="hero-name">Cheri</em>. <br>Here's your money <em>this month</em>.</div>
       </div>
+      <div id="ov-alerts"></div>
       <div class="metric-grid" id="ov-metrics"></div>
       <div class="grid2">
         <div class="card"><div class="card-header"><div class="card-title">Income by source</div></div><div class="chart-wrap" style="height:180px"><canvas id="ch-inc-d" role="img" aria-label="Income donut">Income breakdown</canvas></div><div class="mini-list" id="inc-breakdown"></div></div>
@@ -253,33 +255,10 @@
           </div>
           <div class="setting-note" id="s-save-note">Last month: ₱0.00 · Changed this month: ₱0.00</div>
           <div class="settings-divider"></div>
-          <div class="card-title" style="margin-bottom:10px">Email Reminders</div>
-          <label class="check-row">
-            <input id="s-rem-enabled" type="checkbox">
-            <span>Email me when a bill or loan due date is near</span>
-          </label>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Reminder Email</label>
-              <input class="form-input" id="s-rem-email" type="email" placeholder="cherife1198@gmail.com">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Days Before Due</label>
-              <input class="form-input" id="s-rem-lead" type="number" min="0" max="30" step="1" placeholder="3">
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">Worker Sync URL</label>
-            <input class="form-input" id="s-rem-api" placeholder="/api/reminders/sync">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Private Sync Token</label>
-            <input class="form-input" id="s-rem-token" type="password" placeholder="Same as REMINDER_SYNC_TOKEN">
-          </div>
-          <div class="setting-note" id="s-rem-note">Deploy the Worker, then sync reminders.</div>
+          <div class="card-title" style="margin-bottom:10px">Due Alerts</div>
+          <div class="setting-note" id="s-alert-note">Due and overdue loans or subscriptions will show in the top bar and on Overview. Use your phone reminders for push alerts if you want them outside the app.</div>
           <div class="settings-actions">
             <button class="btn btn-g" onclick="saveSettings()">Save settings</button>
-            <button class="btn" onclick="syncEmailReminders()">Sync reminders</button>
           </div>
         </div>
         <div class="card">
@@ -586,6 +565,6 @@
 
 <div id="toasts"></div>
 
-<script src="assets/js/app.js?v=20260423-1455"></script>
+<script src="assets/js/app.js?v=20260423-1845"></script>
 </body>
 </html>

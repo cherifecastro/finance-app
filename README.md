@@ -79,70 +79,26 @@ npx wrangler secret put FINANCE_DATA_TOKEN
 npm run worker:deploy
 ```
 
-5. Route the Worker to the same domain as the app so these endpoints work:
+5. Route the Worker to the same domain as the app so this endpoint works:
 
 ```text
 /api/data
-/api/reminders/sync
 ```
 
 When you open the app, enter the same `FINANCE_DATA_TOKEN`. The token is stored only in `sessionStorage` for the current browser session; finance data itself is not stored locally.
 
-## Email Reminders
+## Due Alerts
 
-The app can prepare due-date reminders for subscriptions and loans, then sync them to a Cloudflare Worker. The Worker runs daily at 8:00 AM Manila time and sends an email through Resend when an item is due within your reminder window.
+The app now shows due and overdue subscriptions or loans directly inside the UI:
 
-The default reminder email is:
+- a status pill in the top bar
+- a `Due Ping` card on the Overview page
+- a one-time toast when you open the app and something urgent needs attention
 
-```text
-cherife1198@gmail.com
-```
-
-### Worker Setup
-
-Email reminders use the same Worker and KV namespace as cloud data.
-
-Set Worker secrets:
-
-```bash
-npx wrangler secret put RESEND_API_KEY
-npx wrangler secret put REMINDER_SYNC_TOKEN
-```
-
-Set Worker variables in Cloudflare or `wrangler.toml`:
-
-```text
-REMINDER_FROM_EMAIL=Cheri Finance <reminders@yourdomain.com>
-REMINDER_TIMEZONE=Asia/Manila
-ALLOWED_ORIGIN=https://your-domain.com
-```
-
-Deploy the Worker after setting secrets:
-
-```bash
-npm run worker:deploy
-```
-
-In the app Settings, enter the same private sync token, save, then click `Sync reminders`.
-
-If the Worker is on a separate `workers.dev` URL, paste its sync endpoint into Settings, for example:
-
-```text
-https://cheri-finance-reminders.your-subdomain.workers.dev/api/reminders/sync
-```
-
-The default Content Security Policy allows same-origin sync endpoints and `workers.dev` endpoints. If you use a different external Worker domain, add it to `connect-src` in `_headers`.
-
-If you route the Worker on the same domain as the app, keep the default:
-
-```text
-/api/reminders/sync
-```
+For push notifications outside the app, use your phone's Reminders or Calendar app. The web app itself no longer sends email reminders.
 
 ## Privacy Note
 
 Finance data is stored in Cloudflare KV after you unlock the app with your private cloud token. The token is required on each new browser session and is not saved as part of the finance file.
-
-Email reminder sync uploads only the reminder email, reminder settings, and due items needed for notifications. Finance data sync is handled separately by `/api/data`.
 
 The deployment includes `robots.txt` and `X-Robots-Tag` headers to discourage search indexing.

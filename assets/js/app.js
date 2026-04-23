@@ -2,8 +2,8 @@
 const CLOUD_TOKEN_KEY = 'cheri_finance_cloud_token';
 const CLOUD_API_KEY = 'cheri_finance_cloud_api';
 const PANEL_KEY = 'kf_v4_panel';
+const DUE_PING_SESSION_KEY = 'cheri_finance_due_ping';
 const DEFAULT_CLOUD_API_URL = 'https://cheri-finance-reminders.cherife1198.workers.dev/api/data';
-const DEFAULT_REMINDER_API_URL = 'https://cheri-finance-reminders.cherife1198.workers.dev/api/reminders/sync';
 let STORE = normalizeStore();
 let cloudToken = '';
 let cloudApiUrl = DEFAULT_CLOUD_API_URL;
@@ -30,7 +30,7 @@ function td() { return toLocalYmd(new Date()); }
 
 function seed() {
   return {
-    settings: { name:'Cheri', rate:59.891, balance:0, savings:0, savingsPrevious:0, savingsHistory:[], reminderEmail:'cherife1198@gmail.com', remindersEnabled:true, reminderLeadDays:3, reminderApiUrl:DEFAULT_REMINDER_API_URL, reminderSyncToken:'' },
+    settings: { name:'Cheri', rate:59.891, balance:0, savings:0, savingsPrevious:0, savingsHistory:[], dueAlertDays:7 },
     categories: {
       expense: ['OTHER'],
       income: ['OTHER INCOME']
@@ -277,44 +277,158 @@ function recordSavingsSnapshot(settings,nextAmount,previousAmount){
   settings.savings=next;
   settings.savingsHistory=history.slice(-72);
 }
-function reminderSettings(settings){
-  return {
-    enabled:settings?.remindersEnabled!==false,
-    email:(settings?.reminderEmail||'cherife1198@gmail.com').trim(),
-    leadDays:Math.max(0,Math.min(30,+settings?.reminderLeadDays||3)),
-    apiUrl:(settings?.reminderApiUrl||DEFAULT_REMINDER_API_URL).trim()||DEFAULT_REMINDER_API_URL,
-    syncToken:(settings?.reminderSyncToken||'').trim()
-  };
+function dueAlertLeadDays(settings){
+  return Math.max(1,Math.min(30,+settings?.dueAlertDays||+settings?.reminderLeadDays||7));
 }
-function dueItem(type,id,name,amount,dueDate,source=''){
+function dueAlertLevel(diff, leadDays=7){
+  if(diff<0) return {key:'overdue',tone:'urgent',label:`Overdue ${Math.abs(diff)}d`};
+  if(diff===0) return {key:'today',tone:'urgent',label:'Due today'};
+  if(diff<=Math.min(3,leadDays)) return {key:'soon',tone:'warn',label:`Due in ${diff}d`};
+  return {key:'upcoming',tone:'notice',label:`Due in ${diff}d`};
+}
+function dueAlertItem(type,id,name,amount,dueDate,source='',leadDays=7){
   const due=normalizeDateInput(dueDate);
   if(!due) return null;
+  const d=new Date(due+'T00:00:00');
+  if(Number.isNaN(d.getTime())) return null;
+  const today=new Date();
+  today.setHours(0,0,0,0);
+  const diff=Math.round((d-today)/86400000);
+  if(diff>leadDays) return null;
+  const meta=dueAlertLevel(diff,leadDays);
   return {
     id:`${type}:${id||name||due}`,
     type,
+    panel:type==='loan'?'loans':'subscriptions',
     name:name||type,
     amount:+amount||0,
     dueDate:due,
-    source:source||''
+    diff,
+    level:meta.key,
+    tone:meta.tone,
+    levelLabel:meta.label,
+    typeLabel:type==='loan'?'Loan':'Bill',
+    source:(source||'').trim(),
+    dateLabel:d.toLocaleDateString('en-PH',{month:'short',day:'numeric',year:'numeric'})
   };
 }
-function collectReminderItems(store){
+function collectDueAlerts(store){
+  const leadDays=dueAlertLeadDays(store?.settings||{});
   const items=[];
   (store.subscriptions||[]).forEach(sub=>{
     if(!sub||sub.status!=='active'||sub.paid) return;
     const next=subscriptionNextDue(sub);
     const due=next?toLocalYmd(next):'';
-    const item=dueItem('subscription',sub.id,sub.name,+sub.amount||0,due,sub.source||sub.cycle||'');
+    const item=dueAlertItem('subscription',sub.id,sub.name,+sub.amount||0,due,sub.source||sub.cycle||'',leadDays);
     if(item) items.push(item);
   });
   (store.loans||[]).forEach(loan=>{
     if(!loan||loan.status==='paid'||(+loan.balance||0)<=0) return;
     const legacyDue=loan.due?nextDueDate(loan.due):null;
     const due=normalizeDateInput(loan.dueDate)||(legacyDue?toLocalYmd(legacyDue):'');
-    const item=dueItem('loan',loan.id,loan.name,+loan.monthly||+loan.balance||0,due,loan.notes||'');
+    const item=dueAlertItem('loan',loan.id,loan.name,+loan.monthly||+loan.balance||0,due,'',leadDays);
     if(item) items.push(item);
   });
-  return items.sort((a,b)=>a.dueDate.localeCompare(b.dueDate)||a.name.localeCompare(b.name));
+  return items.sort((a,b)=>a.diff-b.diff||b.amount-a.amount||a.name.localeCompare(b.name));
+}
+function summarizeDueAlerts(alerts){
+  return alerts.reduce((summary,item)=>{
+    summary.total+=1;
+    if(item.diff<0) summary.overdue+=1;
+    else if(item.diff===0) summary.today+=1;
+    else if(item.level==='soon') summary.soon+=1;
+    else summary.upcoming+=1;
+    return summary;
+  },{total:0,overdue:0,today:0,soon:0,upcoming:0});
+}
+function dueStatusState(summary){
+  if(summary.overdue) return {tone:'urgent',label:`${summary.overdue} overdue${summary.today?` · ${summary.today} today`:''}`};
+  if(summary.today) return {tone:'warn',label:`${summary.today} due today`};
+  if(summary.total) return {tone:'notice',label:`${summary.total} due soon`};
+  return {tone:'ok',label:'All caught up'};
+}
+function updateDueStatus(){
+  const el=document.getElementById('due-status');
+  if(!el) return;
+  const store=gs();
+  const leadDays=dueAlertLeadDays(store.settings);
+  const alerts=collectDueAlerts(store);
+  const summary=summarizeDueAlerts(alerts);
+  const state=dueStatusState(summary);
+  el.textContent=state.label;
+  el.className=`due-status ${state.tone}`;
+  el.title=alerts.length
+    ? `${summary.overdue} overdue, ${summary.today} due today, ${summary.soon+summary.upcoming} due within ${leadDays} days`
+    : `No loan or subscription due within ${leadDays} days`;
+}
+function renderOverviewDueAlerts(store){
+  const root=document.getElementById('ov-alerts');
+  if(!root) return;
+  const leadDays=dueAlertLeadDays(store?.settings||{});
+  const alerts=collectDueAlerts(store);
+  const summary=summarizeDueAlerts(alerts);
+  if(!alerts.length){
+    root.innerHTML=`<div class="card due-alert-card due-alert-card-clear">
+      <div class="due-alert-header">
+        <div>
+          <div class="card-title">Due Ping</div>
+          <div class="due-alert-note">No loans or subscriptions are due in the next ${leadDays} days.</div>
+        </div>
+        <div class="due-pill ok">All clear</div>
+      </div>
+    </div>`;
+    return;
+  }
+  const pills=[
+    summary.overdue?`<span class="due-pill urgent">${summary.overdue} overdue</span>`:'',
+    summary.today?`<span class="due-pill warn">${summary.today} today</span>`:'',
+    (summary.soon+summary.upcoming)?`<span class="due-pill notice">${summary.soon+summary.upcoming} within ${leadDays}d</span>`:''
+  ].join('');
+  const intro=summary.overdue
+    ? 'Handle the overdue items first so this month stays clean.'
+    : summary.today
+      ? 'You have items due today. Logging payments here will keep the list updated.'
+      : `These items are coming up within the next ${leadDays} days.`;
+  root.innerHTML=`<div class="card due-alert-card ${summary.overdue?'urgent':summary.today?'warn':'notice'}">
+    <div class="due-alert-header">
+      <div>
+        <div class="card-title">Due Ping</div>
+        <div class="due-alert-note">${intro}</div>
+      </div>
+      <div class="due-alert-pills">${pills}</div>
+    </div>
+    <div class="due-alert-list">
+      ${alerts.slice(0,5).map(item=>`<div class="due-item ${item.tone}">
+        <div class="due-item-copy">
+          <div class="due-item-top">
+            <span class="due-item-name">${item.name}</span>
+            <span class="due-item-kind">${item.typeLabel}</span>
+          </div>
+          <div class="due-item-meta">${item.levelLabel} · ${item.dateLabel}${item.source?` · ${item.source}`:''}</div>
+        </div>
+        <div class="due-item-amount">${P(item.amount)}</div>
+      </div>`).join('')}
+    </div>
+    ${alerts.length>5?`<div class="due-alert-foot">+${alerts.length-5} more item${alerts.length-5===1?'':'s'} on the Loans and Subscriptions pages.</div>`:''}
+  </div>`;
+}
+function maybeToastDuePing(){
+  const store=gs();
+  const alerts=collectDueAlerts(store);
+  const summary=summarizeDueAlerts(alerts);
+  const key=`${summary.overdue}:${summary.today}:${summary.soon}:${summary.upcoming}`;
+  if(sessionStorage.getItem(DUE_PING_SESSION_KEY)===key) return;
+  sessionStorage.setItem(DUE_PING_SESSION_KEY,key);
+  if(!alerts.length) return;
+  if(summary.overdue){
+    toast(`${summary.overdue} overdue item${summary.overdue===1?'':'s'} need attention`,'var(--red)');
+    return;
+  }
+  if(summary.today){
+    toast(`${summary.today} item${summary.today===1?'':'s'} due today`,'var(--amber)');
+    return;
+  }
+  toast(`${summary.total} item${summary.total===1?'':'s'} due within ${dueAlertLeadDays(store.settings)} days`,'var(--blue)');
 }
 function applySettingsFromForm(s){
   const previousSavings=+document.getElementById('s-save-prev')?.value||0;
@@ -323,11 +437,7 @@ function applySettingsFromForm(s){
   s.settings.rate=+document.getElementById('s-rate')?.value||59.891;
   s.settings.balance=nextSavings;
   recordSavingsSnapshot(s.settings,nextSavings,previousSavings);
-  s.settings.reminderEmail=(document.getElementById('s-rem-email')?.value||'cherife1198@gmail.com').trim();
-  s.settings.remindersEnabled=!!document.getElementById('s-rem-enabled')?.checked;
-  s.settings.reminderLeadDays=Math.max(0,Math.min(30,+document.getElementById('s-rem-lead')?.value||3));
-  s.settings.reminderApiUrl=(document.getElementById('s-rem-api')?.value||DEFAULT_REMINDER_API_URL).trim()||DEFAULT_REMINDER_API_URL;
-  s.settings.reminderSyncToken=(document.getElementById('s-rem-token')?.value||'').trim();
+  s.settings.dueAlertDays=dueAlertLeadDays(s.settings);
 }
 function normalizeRangeValues(start,end){
   let s=start||'';
@@ -624,6 +734,7 @@ function nav(el) {
 function curPanel() { return (document.querySelector('.nav-item.active')||{}).dataset?.panel||'overview'; }
 function renderP(p) {
   ({overview:renderOverview,transactions:renderTx,loans:renderLoans,subscriptions:renderSubs,income:renderIncome,budget:renderBudget,upwork:renderUpwork,settings:renderSettings})[p]?.();
+  updateDueStatus();
 }
 
 // ─── TRANSACTIONS ─────────────────────────────────────
@@ -1455,6 +1566,7 @@ function renderOverview(){
     : `<div class="mini-row"><div><strong>${emptyTitle}</strong><small>${emptyNote}</small></div><div style="font-family:'IBM Plex Mono',monospace;color:var(--muted)">—</div></div>`;
   const hrEl=document.getElementById('hero-greet'); if(hrEl){const h=new Date().getHours();hrEl.textContent=(h<12?'Good morning':h<18?'Good afternoon':'Good evening')+' · '+new Date().toLocaleDateString('en-PH',{weekday:'long',month:'long',day:'numeric'});}
   const hn=document.getElementById('hero-name'); if(hn) hn.textContent=s.settings.name||'Cheri';
+  renderOverviewDueAlerts(s);
   document.getElementById('ov-metrics').innerHTML=`
     <div class="mcard g"><div class="m-label">Total Income</div><div class="m-value g">${P(totI)}</div><div class="m-sub">This month: ${P(mI)}</div></div>
     <div class="mcard r"><div class="m-label">Total Expenses</div><div class="m-value r">${P(totE)}</div><div class="m-sub">This month: ${P(mE)}</div></div>
@@ -1503,21 +1615,14 @@ function renderSettings(){
   const previousInput=document.getElementById('s-save-prev');
   if(previousInput) previousInput.value=lastMonthSavings(s.settings);
   document.getElementById('s-save').value=s.settings.savings||0;
-  const rem=reminderSettings(s.settings);
-  const remEmail=document.getElementById('s-rem-email');
-  if(remEmail) remEmail.value=rem.email;
-  const remEnabled=document.getElementById('s-rem-enabled');
-  if(remEnabled) remEnabled.checked=rem.enabled;
-  const remLead=document.getElementById('s-rem-lead');
-  if(remLead) remLead.value=rem.leadDays;
-  const remApi=document.getElementById('s-rem-api');
-  if(remApi) remApi.value=rem.apiUrl;
-  const remToken=document.getElementById('s-rem-token');
-  if(remToken) remToken.value=rem.syncToken;
-  const remNote=document.getElementById('s-rem-note');
-  if(remNote){
-    const count=collectReminderItems(s).length;
-    remNote.textContent=`${count} due item${count===1?'':'s'} ready to sync. Daily emails go to ${rem.email}.`;
+  const alertNote=document.getElementById('s-alert-note');
+  if(alertNote){
+    const leadDays=dueAlertLeadDays(s.settings);
+    const dueAlerts=collectDueAlerts(s);
+    const summary=summarizeDueAlerts(dueAlerts);
+    alertNote.innerHTML=dueAlerts.length
+      ? `<strong>${summary.overdue}</strong> overdue · <strong>${summary.today}</strong> due today · <strong>${summary.soon+summary.upcoming}</strong> within ${leadDays} days. The same ping shows in the top bar and on Overview.`
+      : `You're all caught up. When a loan or subscription comes within ${leadDays} days, the app will flag it in the top bar and on Overview. Use your phone reminders for push alerts outside the app.`;
   }
   const savingsNote=document.getElementById('s-save-note');
   if(savingsNote){
@@ -1531,32 +1636,6 @@ function saveSettings(){
   const s=gs();
   applySettingsFromForm(s);
   ss(s); document.getElementById('sf-name').textContent=s.settings.name; renderSettings(); toast('Settings saved');
-}
-async function syncEmailReminders(){
-  const s=gs();
-  applySettingsFromForm(s);
-  ss(s);
-  renderSettings();
-  const rem=reminderSettings(s.settings);
-  const note=document.getElementById('s-rem-note');
-  if(!rem.email||!rem.email.includes('@')){
-    toast('Enter a valid reminder email','var(--red)');
-    return;
-  }
-  const items=collectReminderItems(s);
-  const payload={email:rem.email,enabled:rem.enabled,leadDays:rem.leadDays,generatedAt:new Date().toISOString(),items};
-  const headers={'Content-Type':'application/json'};
-  if(rem.syncToken) headers['x-reminder-token']=rem.syncToken;
-  try{
-    const res=await fetch(rem.apiUrl,{method:'POST',headers,body:JSON.stringify(payload)});
-    const body=await res.json().catch(()=>({}));
-    if(!res.ok) throw new Error(body.error||`Sync failed (${res.status})`);
-    if(note) note.textContent=`Synced ${items.length} due item${items.length===1?'':'s'} for ${rem.email}.`;
-    toast('Email reminders synced');
-  }catch(err){
-    if(note) note.textContent=`Sync failed: ${err.message}. Deploy the Worker first, then sync again.`;
-    toast('Reminder sync failed','var(--red)');
-  }
 }
 function renderCats(){
   const s=gs();
@@ -1616,6 +1695,7 @@ function finishAppInit(){
   document.getElementById('sf-name').textContent=s.settings.name||'Cheri';
   refreshTxCats();
   nav({dataset:{panel:getInitialPanel()}});
+  setTimeout(maybeToastDuePing,160);
   syncResponsiveShell();
   window.addEventListener('resize',syncResponsiveShell);
   document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSidebar(); });
