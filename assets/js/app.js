@@ -457,8 +457,7 @@ function collectDueAlerts(store){
   });
   (store.loans||[]).forEach(loan=>{
     if(!loan||loan.status==='paid'||(+loan.balance||0)<=0) return;
-    const legacyDue=loan.due?nextDueDate(loan.due):null;
-    const due=normalizeDateInput(loan.dueDate)||(legacyDue?toLocalYmd(legacyDue):'');
+    const due=loanRecurringDueDate(loan, store);
     const item=dueAlertItem('loan',loan.id,loan.name,+loan.monthly||+loan.balance||0,due,'',leadDays);
     if(item) items.push(item);
   });
@@ -592,6 +591,24 @@ function monthBounds(monthStr){
   const lastDay=String(new Date(y,m,0).getDate()).padStart(2,'0');
   return {start:`${monthStr}-01`,end:`${monthStr}-${lastDay}`};
 }
+function currentMonthKey(){
+  return td().slice(0,7);
+}
+function shiftMonth(monthStr, delta=0){
+  if(!monthStr||!/^\d{4}-\d{2}$/.test(monthStr)) return '';
+  const [year,month]=monthStr.split('-').map(Number);
+  const d=new Date(year,month-1+delta,1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+function previousMonthKey(monthStr=currentMonthKey()){
+  return shiftMonth(monthStr,-1);
+}
+function monthLabel(monthStr){
+  if(!monthStr||!/^\d{4}-\d{2}$/.test(monthStr)) return '';
+  const d=new Date(`${monthStr}-01T00:00:00`);
+  if(Number.isNaN(d.getTime())) return monthStr;
+  return d.toLocaleDateString('en-PH',{month:'short',year:'numeric'});
+}
 function entryInMonth(item,monthStr){
   const {start,end}=getEntryRange(item);
   const {start:mStart,end:mEnd}=monthBounds(monthStr);
@@ -637,43 +654,68 @@ function budgetPayments(line){
     }))
     .filter(payment=>payment.date && payment.amount>0);
 }
-function budgetPaidAmount(line){
-  const payments=budgetPayments(line);
+function budgetMonthPayments(line, monthStr=currentMonthKey()){
+  const month=monthStr||currentMonthKey();
+  const payments=budgetPayments(line).filter(payment=>payment.date.slice(0,7)===month);
+  if(payments.length) return payments;
+  const paidDate=normalizeDateInput(line?.paidDate||line?.date||'');
+  if(line?.paid&&paidDate&&paidDate.slice(0,7)===month){
+    return [{id:`manual-${month}`,date:paidDate,amount:+line.amount||0,notes:'Manual paid'}];
+  }
+  return [];
+}
+function budgetPaidAmount(line, monthStr=currentMonthKey()){
+  const payments=monthStr?budgetMonthPayments(line, monthStr):budgetPayments(line);
   if(payments.length) return payments.reduce((sum,payment)=>sum+(+payment.amount||0),0);
-  return line?.paid?(+line.amount||0):0;
+  return monthStr?0:(line?.paid?(+line.amount||0):0);
 }
-function budgetLastPaidDate(line){
-  const dates=budgetPayments(line).map(payment=>payment.date).sort();
+function budgetLastPaidDate(line, monthStr=currentMonthKey()){
+  const dates=(monthStr?budgetMonthPayments(line, monthStr):budgetPayments(line)).map(payment=>payment.date).sort();
   if(dates.length) return dates[dates.length-1];
-  return normalizeDateInput(line?.paidDate)||normalizeDateInput(line?.date)||'';
+  return monthStr?'':(normalizeDateInput(line?.paidDate)||normalizeDateInput(line?.date)||'');
 }
-function budgetRemainingAmount(line){
-  return Math.max(0,(+line?.amount||0)-budgetPaidAmount(line));
+function budgetRemainingAmount(line, monthStr=currentMonthKey()){
+  return Math.max(0,(+line?.amount||0)-budgetPaidAmount(line, monthStr));
 }
-function budgetOverAmount(line){
-  return Math.max(0,budgetPaidAmount(line)-(+line?.amount||0));
+function budgetOverAmount(line, monthStr=currentMonthKey()){
+  return Math.max(0,budgetPaidAmount(line, monthStr)-(+line?.amount||0));
 }
-function budgetStatusMeta(line){
+function budgetStatusMeta(line, monthStr=currentMonthKey()){
   const target=+line?.amount||0;
-  const paid=budgetPaidAmount(line);
-  const hasPayments=budgetPayments(line).length>0;
+  const paid=budgetPaidAmount(line, monthStr);
+  const hasPayments=budgetMonthPayments(line, monthStr).length>0;
   if(hasPayments){
     if(paid<=0) return {label:'Unpaid',chip:'chip-a'};
     if(target>0 && paid+0.009<target) return {label:'Partial',chip:'chip-b'};
     if(target>0 && paid>target+0.009) return {label:'Over budget',chip:'chip-r'};
     return {label:'Paid',chip:'chip-g'};
   }
-  return line?.paid ? {label:'Paid',chip:'chip-g'} : {label:'Unpaid',chip:'chip-a'};
+  return line?.paid&&normalizeDateInput(line?.paidDate||'').slice(0,7)===(monthStr||currentMonthKey()) ? {label:'Paid',chip:'chip-g'} : {label:'Unpaid',chip:'chip-a'};
+}
+function budgetMonthSummary(line, monthStr=currentMonthKey()){
+  return {
+    month:monthStr,
+    label:monthLabel(monthStr),
+    payments:budgetMonthPayments(line, monthStr).sort((a,b)=>b.date.localeCompare(a.date)),
+    paid:budgetPaidAmount(line, monthStr),
+    remaining:budgetRemainingAmount(line, monthStr),
+    over:budgetOverAmount(line, monthStr),
+    status:budgetStatusMeta(line, monthStr),
+    lastPaidDate:budgetLastPaidDate(line, monthStr)
+  };
 }
 function syncBudgetLinePayments(line){
-  const payments=budgetPayments(line);
-  line.payments=payments;
-  if(payments.length){
-    const totalPaid=payments.reduce((sum,payment)=>sum+(+payment.amount||0),0);
+  const currentMonth=currentMonthKey();
+  const allPayments=budgetPayments(line);
+  const currentPayments=allPayments.filter(payment=>payment.date.slice(0,7)===currentMonth);
+  line.payments=allPayments;
+  if(currentPayments.length){
+    const totalPaid=currentPayments.reduce((sum,payment)=>sum+(+payment.amount||0),0);
     const target=+line.amount||0;
     line.paid=target>0 ? totalPaid+0.009>=target : totalPaid>0;
-    line.paidDate=line.paid ? (payments.map(payment=>payment.date).sort().pop()||'') : '';
-  } else if(!line.paid){
+    line.paidDate=line.paid ? (currentPayments.map(payment=>payment.date).sort().pop()||'') : '';
+  } else if(!(line.paid&&normalizeDateInput(line.paidDate||'').slice(0,7)===currentMonth)){
+    line.paid=false;
     line.paidDate='';
   }
   return line;
@@ -769,6 +811,73 @@ function paidLoansAsExpenses(store){
       };
     })
     .filter(t=>(+t.amount||0)>0);
+}
+function loanPaymentEntries(loan, store){
+  const loanName=(loan?.name||'').trim().toLowerCase();
+  return (store?.transactions||[])
+    .filter(t=>{
+      if(!t||t.type!=='expense') return false;
+      if(loan?.id&&t.loanId===loan.id) return true;
+      const cat=(t.cat||'').trim().toLowerCase();
+      return !!loanName&&cat===loanName&&!!t.loanPayment;
+    })
+    .sort((a,b)=>getEntryRange(b).start.localeCompare(getEntryRange(a).start));
+}
+function loanPaidAmount(loan, store, monthStr=currentMonthKey()){
+  return loanPaymentEntries(loan, store)
+    .filter(entry=>entryInMonth(entry, monthStr))
+    .reduce((sum,entry)=>sum+(+entry.amount||0),0);
+}
+function loanLastPaymentDate(loan, store, monthStr=currentMonthKey()){
+  return loanPaymentEntries(loan, store)
+    .filter(entry=>entryInMonth(entry, monthStr))
+    .map(entry=>getEntryRange(entry).end||getEntryRange(entry).start||'')
+    .filter(Boolean)
+    .sort()
+    .pop()||'';
+}
+function loanMonthSummary(loan, store, monthStr=currentMonthKey()){
+  const monthly=+loan?.monthly||0;
+  const paid=loanPaidAmount(loan, store, monthStr);
+  const over=Math.max(0,paid-monthly);
+  const remaining=Math.max(0,monthly-paid);
+  let label='No monthly target';
+  let chip='chip-m';
+  if(monthly>0){
+    if(paid<=0){label='Unpaid';chip='chip-a';}
+    else if(paid+0.009<monthly){label='Partial';chip='chip-b';}
+    else if(paid>monthly+0.009){label='Overpaid';chip='chip-r';}
+    else {label='Paid';chip='chip-g';}
+  }
+  return {
+    month:monthStr,
+    label:monthLabel(monthStr),
+    paid,
+    over,
+    remaining,
+    status:{label,chip},
+    monthly,
+    lastPaidDate:loanLastPaymentDate(loan, store, monthStr),
+    paidEnough:monthly>0 ? paid+0.009>=monthly : paid>0
+  };
+}
+function loanRecurringDueDate(loan, store, refDate=new Date()){
+  const direct=normalizeDateInput(loan?.dueDate||'');
+  if(!direct){
+    const legacy=loan?.due?nextDueDate(loan.due):null;
+    return legacy?toLocalYmd(legacy):'';
+  }
+  const timeline=recurringTimeline(direct,'monthly',refDate);
+  let due=timeline.currentDue||timeline.nextDue||direct;
+  if(timeline.currentDue&&loanMonthSummary(loan, store, due.slice(0,7)).paidEnough){
+    due=timeline.nextDue||shiftRecurringDate(due,'monthly',1);
+  }
+  return due;
+}
+function loanDueBadge(loan, store){
+  const recurringDue=loanRecurringDueDate(loan, store);
+  if(!recurringDue) return '<span style="color:var(--muted);font-family:\'DM Mono\',monospace;font-size:11px">—</span>';
+  return dueDateBadge(recurringDue);
 }
 function inDateRange(date,start,end){
   return rangesOverlap(date,date,start,end);
@@ -1180,9 +1289,13 @@ function delMand(id){askConfirm(()=>{const s=gs();s.mandatoryExpenses=s.mandator
 
 function renderLoans(){
   const s=gs(); const loans=s.loans;
+  const currentMonth=currentMonthKey();
+  const lastMonth=previousMonthKey(currentMonth);
   const totD=loans.reduce((a,l)=>a+(+l.total||0),0);
   const totB=loans.reduce((a,l)=>a+(+l.balance||0),0);
   const loanMonthlyDue=loans.reduce((a,l)=>a+(+l.monthly||0),0);
+  const loanPaidThisMonth=loans.reduce((a,l)=>a+loanPaidAmount(l,s,currentMonth),0);
+  const loanPaidLastMonth=loans.reduce((a,l)=>a+loanPaidAmount(l,s,lastMonth),0);
   const mands=s.mandatoryExpenses||[];
   const totMand=mands.reduce((a,m)=>a+(+m.amount||0),0);
   const totM=loanMonthlyDue+totMand;
@@ -1191,22 +1304,24 @@ function renderLoans(){
     <div class="mcard r"><div class="m-label">Total Debt</div><div class="m-value r">${P(totD)}</div><div class="m-sub">All loans</div></div>
     <div class="mcard a"><div class="m-label">Outstanding</div><div class="m-value a">${P(totB)}</div><div class="m-sub">Still owed</div></div>
     <div class="mcard b"><div class="m-label">Monthly Due</div><div class="m-value b">${P(totM)}</div><div class="m-sub">Loans ${P(loanMonthlyDue)} + mandatory ${P(totMand)}</div></div>
-    <div class="mcard t"><div class="m-label">Active</div><div class="m-value t">${active}</div><div class="m-sub">Open loans</div></div>`;
+    <div class="mcard t"><div class="m-label">This Month Paid</div><div class="m-value t">${P(loanPaidThisMonth)}</div><div class="m-sub">Last month ${P(loanPaidLastMonth)} · ${active} active</div></div>`;
   killChart('ch-loans');
   const cv=document.getElementById('ch-loans');
   if(cv) CH['ch-loans']=new Chart(cv,{type:'bar',data:{labels:loans.map(l=>l.name),datasets:[{data:loans.map(l=>+l.total),backgroundColor:loans.map(l=>l.status==='paid'?'#4ade80':l.status==='minimal'?'#fbbf24':'#f87171'),borderRadius:4}]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>'₱'+Math.round(c.parsed.x).toLocaleString()}}},scales:{x:{ticks:{callback:v=>'₱'+(v/1000).toFixed(0)+'k'}}}}});
   const sc={active:'<span class="chip chip-r">Active</span>',paid:'<span class="chip chip-g">Paid</span>',minimal:'<span class="chip chip-a">Almost done</span>'};
   document.getElementById('ln-body').innerHTML=loans.map(l=>{
+    const currentLoan=loanMonthSummary(l,s,currentMonth);
+    const previousLoan=loanMonthSummary(l,s,lastMonth);
     const pct=l.total>0?Math.min(100,Math.round((1-(l.balance/l.total))*100)):100;
     const pc=l.status==='paid'?'var(--green)':l.status==='minimal'?'var(--amber)':'var(--red)';
-    const dueTag=l.dueDate?dueDateBadge(l.dueDate):dueBadge(l.due);
+    const dueTag=loanDueBadge(l,s);
     return `<div class="tbl-row tbl-row-loans">
-      <div class="tbl-cell tbl-cell-primary" data-label="Name"><div><div style="font-weight:500">${l.name}</div><div style="font-size:11px;color:var(--muted)">${l.notes||''}</div><div style="margin-top:5px"><div class="prog-bg" style="width:100px"><div class="prog-fill" style="width:${pct}%;background:${pc}"></div></div></div></div></div>
+      <div class="tbl-cell tbl-cell-primary" data-label="Name"><div><div style="font-weight:500">${l.name}</div><div style="font-size:11px;color:var(--muted)">${l.notes||''}</div><div class="tx-source-tag" style="margin-top:5px">${currentLoan.label}: ${P(currentLoan.paid)}${currentLoan.over>0?` · over ${P(currentLoan.over)}`:currentLoan.monthly>0&&currentLoan.remaining>0?` · ${P(currentLoan.remaining)} left`:currentLoan.monthly>0?' · covered':''}</div><div class="tx-source-tag" style="margin-top:2px">Last month: ${P(previousLoan.paid)}${previousLoan.over>0?` · over ${P(previousLoan.over)}`:''}</div><div style="margin-top:5px"><div class="prog-bg" style="width:100px"><div class="prog-fill" style="width:${pct}%;background:${pc}"></div></div></div></div></div>
       <div class="tbl-cell tbl-cell-mono" data-label="Total" style="text-align:right;font-family:'DM Mono',monospace;font-size:13px">${P(l.total)}</div>
       <div class="tbl-cell tbl-cell-mono" data-label="Balance" style="text-align:right;font-family:'DM Mono',monospace;font-size:13px;color:${l.balance>0?'var(--red)':'var(--green)'}">${P(l.balance)}</div>
       <div class="tbl-cell tbl-cell-mono" data-label="Monthly" style="text-align:right;font-family:'DM Mono',monospace;font-size:13px;color:var(--amber)">${l.monthly?P(l.monthly):'-'}</div>
       <div class="tbl-cell" data-label="Due date">${dueTag}</div>
-      <div class="tbl-cell" data-label="Status">${sc[l.status]||''}</div>
+      <div class="tbl-cell" data-label="Status">${sc[l.status]||''}${currentLoan.monthly>0?`<div class="tx-source-tag" style="margin-top:4px">${currentLoan.label}</div>`:''}</div>
       <div class="tbl-cell tbl-actions" data-label="Actions" style="display:flex;gap:3px;justify-content:flex-end">
         <button class="icon-btn" onclick="openLoanPay('${l.id}')" title="Log payment" style="color:var(--green)"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
         <button class="icon-btn edt" onclick="openLoanModal('${l.id}')" title="Edit"><svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M11 2l3 3-9 9H2v-3L11 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg></button>
@@ -1427,11 +1542,12 @@ function openBudgetModal(id){
   if(id){
     const l=gs().budgetLines.find(x=>x.id===id);
     if(l){
+      const current=budgetMonthSummary(l);
       document.getElementById('bg-name').value=l.name;
       document.getElementById('bg-amt').value=l.amount;
       document.getElementById('bg-cat').value=l.cat||'';
-      document.getElementById('bg-status').value=l.paid?'paid':'unpaid';
-      document.getElementById('bg-paid-date').value=l.paidDate||'';
+      document.getElementById('bg-status').value=current.status.label==='Paid'?'paid':'unpaid';
+      document.getElementById('bg-paid-date').value=current.lastPaidDate||'';
     }
   } else {
     document.getElementById('bg-name').value='';
@@ -1445,12 +1561,13 @@ function openBudgetModal(id){
 function openBudgetPayment(id){
   const line=gs().budgetLines.find(x=>x.id===id);
   if(!line) return;
-  const remaining=budgetRemainingAmount(line);
-  const paid=budgetPaidAmount(line);
+  const current=budgetMonthSummary(line);
+  const remaining=current.remaining;
+  const paid=current.paid;
   document.getElementById('m-bg-pay-title').textContent='Log Expense - '+line.name;
   document.getElementById('m-bg-pay-subcopy').textContent=remaining>0
-    ? `Remaining to budget: ${P(remaining)}. Enter only what you paid today.`
-    : `Budget already covered by ${P(paid)}. Extra spending will show as over budget.`;
+    ? `Remaining this month: ${P(remaining)}. Enter only what you paid today.`
+    : `This month is already covered by ${P(paid)}. Extra spending will show as over budget.`;
   document.getElementById('bgp-line-id').value=id;
   document.getElementById('bgp-date').value=td();
   document.getElementById('bgp-amt').value='';
@@ -1542,35 +1659,43 @@ function toggleBudgetPaid(id){
 
 function renderBudget(){
   const s=gs(); const lines=s.budgetLines||[];
+  const currentMonth=currentMonthKey();
+  const lastMonth=previousMonthKey(currentMonth);
+  const currentLabel=monthLabel(currentMonth);
+  const lastLabel=monthLabel(lastMonth);
   const totBg=lines.reduce((a,l)=>a+(+l.amount||0),0);
-  const paidBillSpent=lines.reduce((a,l)=>a+budgetPaidAmount(l),0);
-  const overspent=Math.max(0,paidBillSpent-totBg);
+  const paidBillSpent=lines.reduce((a,l)=>a+budgetPaidAmount(l,currentMonth),0);
+  const lastMonthSpent=lines.reduce((a,l)=>a+budgetPaidAmount(l,lastMonth),0);
+  const overspent=lines.reduce((a,l)=>a+budgetOverAmount(l,currentMonth),0);
   const bgTotals=document.getElementById('bg-chart-totals');
   if(bgTotals){
     bgTotals.innerHTML=`
       <span class="bg-total-chip">Budgeted <strong>${P(totBg)}</strong></span>
-      <span class="bg-total-chip">Logged <strong>${P(paidBillSpent)}</strong></span>
-      <span class="bg-total-chip ${overspent>0?'bg-total-chip-over':''}">Overspent <strong>${P(overspent)}</strong></span>`;
+      <span class="bg-total-chip">${currentLabel} <strong>${P(paidBillSpent)}</strong></span>
+      <span class="bg-total-chip ${overspent>0?'bg-total-chip-over':''}">Overspent <strong>${P(overspent)}</strong></span>
+      <span class="bg-total-chip">${lastLabel} <strong>${P(lastMonthSpent)}</strong></span>`;
   }
   killChart('ch-budget');
   const cv=document.getElementById('ch-budget');
   if(cv&&lines.length){
-    const acts=lines.map(l=>budgetPaidAmount(l));
-    CH['ch-budget']=new Chart(cv,{type:'bar',data:{labels:lines.map(l=>l.name),datasets:[{label:'Budget',data:lines.map(l=>+l.amount),backgroundColor:'rgba(74,114,181,.45)',borderRadius:3},{label:'Logged',data:acts,backgroundColor:lines.map(l=>{const status=budgetStatusMeta(l).label;return status==='Paid'?'rgba(61,139,95,.78)':status==='Partial'?'rgba(47,114,196,.72)':status==='Over budget'?'rgba(181,74,94,.75)':'rgba(138,138,150,.28)';}),borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{color:'#8a8a96',boxWidth:10}}},scales:{y:{ticks:{callback:v=>'₱'+(v/1000).toFixed(0)+'k'}}}}});
+    const acts=lines.map(l=>budgetPaidAmount(l,currentMonth));
+    CH['ch-budget']=new Chart(cv,{type:'bar',data:{labels:lines.map(l=>l.name),datasets:[{label:`Budget (${currentLabel})`,data:lines.map(l=>+l.amount),backgroundColor:'rgba(74,114,181,.45)',borderRadius:3},{label:`Spent (${currentLabel})`,data:acts,backgroundColor:lines.map(l=>{const status=budgetStatusMeta(l,currentMonth).label;return status==='Paid'?'rgba(61,139,95,.78)':status==='Partial'?'rgba(47,114,196,.72)':status==='Over budget'?'rgba(181,74,94,.75)':'rgba(138,138,150,.28)';}),borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:true,labels:{color:'#8a8a96',boxWidth:10}}},scales:{y:{ticks:{callback:v=>'₱'+(v/1000).toFixed(0)+'k'}}}}});
   }
   document.getElementById('bg-body').innerHTML=lines.length?lines.map(l=>{
-    const payments=budgetPayments(l).sort((a,b)=>b.date.localeCompare(a.date));
-    const paid=budgetPaidAmount(l);
-    const remaining=budgetRemainingAmount(l);
-    const over=budgetOverAmount(l);
-    const status=budgetStatusMeta(l);
+    const current=budgetMonthSummary(l,currentMonth);
+    const previous=budgetMonthSummary(l,lastMonth);
+    const payments=current.payments;
+    const paid=current.paid;
+    const remaining=current.remaining;
+    const over=current.over;
+    const status=current.status;
     const pct=(+l.amount||0)>0?Math.min(100,Math.round((paid/(+l.amount||1))*100)):0;
-    const lastPaidDate=budgetLastPaidDate(l);
+    const lastPaidDate=current.lastPaidDate;
     const paidLabel=payments.length
-      ? `${payments.length} payment${payments.length>1?'s':''} logged`
-      : l.paid
-        ? 'Marked paid manually'
-        : 'No payments logged yet';
+      ? `${payments.length} payment${payments.length>1?'s':''} logged this month`
+      : status.label==='Paid'
+        ? 'Marked paid manually this month'
+        : 'No payments logged this month';
     const paymentLog=payments.length
       ? `<div class="budget-payment-list">${payments.slice(0,3).map(payment=>`
           <div class="budget-payment-row">
@@ -1599,12 +1724,13 @@ function renderBudget(){
         </div>
       </div>
       <div class="budget-line-stats">
-        <span class="budget-line-stat">Paid <strong>${P(paid)}</strong></span>
+        <span class="budget-line-stat">${currentLabel} <strong>${P(paid)}</strong></span>
+        <span class="budget-line-stat">${lastLabel} <strong>${P(previous.paid)}</strong></span>
         <span class="budget-line-stat">${over>0?'Over':'Remaining'} <strong>${P(over>0?over:remaining)}</strong></span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);margin-bottom:6px;gap:8px">
-        <span>${paidLabel}</span>
-        <span>${lastPaidDate?`Last paid ${fmtDateLong(lastPaidDate)}`:'Waiting for first payment'}</span>
+        <span>${paidLabel}${previous.over>0?` · Last month over by ${P(previous.over)}`:previous.paid>0?' · Last month stayed within budget':''}</span>
+        <span>${lastPaidDate?`Last logged ${fmtDateLong(lastPaidDate)}`:`No ${currentLabel.toLowerCase()} payment yet`}</span>
       </div>
       <div class="prog-bg" style="width:100%;height:5px"><div class="prog-fill" style="width:${pct}%;background:${over>0?'var(--red)':paid>0?'var(--green)':'var(--muted-2)'}"></div></div>
       ${paymentLog}
